@@ -212,6 +212,7 @@
     <div class="side-section">
       <div class="side-label">Channel</div>
       <div class="side-item" id="nav-channel" onclick="showPage('channel')">BQL MoM — Channel-wise</div>
+      <div class="side-item" id="nav-cohort" onclick="showPage('cohort')">BQL Cohort Funnel</div>
     </div>
     <div class="side-section">
       <div class="side-label">Coming next</div>
@@ -258,7 +259,16 @@
 
     <div class="note" id="channelLoadStatus">Connecting to live sheet…</div>
 
-    <!-- ===== SECTION A: Channel Contribution % ===== -->
+    <div class="controls" style="margin-bottom:18px;">
+      <div><label>View</label>
+        <div class="toggle-group" id="channelViewToggle">
+          <button type="button" class="toggle-btn active" data-view="contrib">Contribution % by Channel</button>
+          <button type="button" class="toggle-btn" data-view="mix">Channel Mix by Cluster</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="viewContrib">
     <div class="section-card">
       <div class="section-head">
         <div class="section-title">Channel Contribution % <span class="section-tag">Cluster × Month</span></div>
@@ -283,14 +293,43 @@
       <div id="chartWrapA" class="chart-wrap"></div>
       <div id="regionContainerA"></div>
     </div>
+    </div>
 
-    <!-- ===== SECTION B: BQL Cohort Funnel ===== -->
+    <div id="viewMix" style="display:none;">
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Channel Mix by Cluster <span class="section-tag">Channel × Month</span></div>
+        <div class="section-desc">For the selected cluster, share of its total BQL contributed by each channel, by month.</div>
+      </div>
+      <div class="controls">
+        <div><label>Cluster</label>
+          <select id="clusterSelMix"></select>
+        </div>
+        <div class="pill" id="periodPillMix"></div>
+      </div>
+      <div id="chartWrapMix" class="chart-wrap"></div>
+      <div id="mixGridWrap" class="table-wrap"></div>
+    </div>
+    </div>
+  </div>
+
+  <div id="page-cohort" class="page-view" style="display:none;">
+    <div class="page-title">BQL Cohort Funnel</div>
+    <div class="page-sub">BQL → Lead to LRM → First MS → First MD → HoTo · cohort basis · unique leads only</div>
+
+    <div class="note" id="cohortLoadStatus">Connecting to live sheet…</div>
+
     <div class="section-card">
       <div class="section-head">
         <div class="section-title">BQL Cohort Funnel <span class="section-tag">Trend</span></div>
-        <div class="section-desc">BQL → Lead to LRM → First MS → First MD → HoTo, cohort-basis (a lead's outcomes count toward the month/week/day it was created).</div>
+        <div class="section-desc">A lead's outcomes count toward the month/week/day it was created, regardless of when the later stage actually happened.</div>
       </div>
       <div class="controls">
+        <div><label>Cluster</label>
+          <select id="clusterSelCohort">
+            <option value="__all__">All India</option>
+          </select>
+        </div>
         <div><label>Channel</label>
           <select id="chanSelB">
             <option value="__all__">All Channels</option>
@@ -471,7 +510,8 @@ function showPage(id){
   document.getElementById('page-' + id).style.display = 'block';
   document.getElementById('nav-mom').classList.toggle('active', id === 'mom');
   document.getElementById('nav-channel').classList.toggle('active', id === 'channel');
-  if(id === 'channel' && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) loadChannelData();
+  document.getElementById('nav-cohort').classList.toggle('active', id === 'cohort');
+  if((id === 'channel' || id === 'cohort') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) loadChannelData();
 }
 
 // =====================================================================
@@ -511,8 +551,11 @@ function parseCSV(text){
 
 async function loadChannelData(){
   const statusEl = document.getElementById('channelLoadStatus');
-  statusEl.className = 'note';
-  statusEl.innerHTML = 'Connecting to live sheet…';
+  const statusEl2 = document.getElementById('cohortLoadStatus');
+  const setStatus = (cls, html) => {
+    [statusEl, statusEl2].forEach(el => { if(el){ el.className = cls; el.innerHTML = html; } });
+  };
+  setStatus('note', 'Connecting to live sheet…');
   try {
     const res = await fetch(SHEET_CSV_URL, {cache:'no-store'});
     if(!res.ok) throw new Error('HTTP ' + res.status);
@@ -552,14 +595,13 @@ async function loadChannelData(){
     CHANNEL_UNMAPPED = [...unmappedCities];
     buildAggMC();
     CHANNEL_DATA_LOADED = true;
-    statusEl.className = 'note status-ok';
-    statusEl.innerHTML = '<b>Live data connected</b> — ' + RAW_LEADS.length.toLocaleString('en-IN') + ' unique lead(s) loaded from the Google Sheet just now.' +
-      (CHANNEL_UNMAPPED.length ? '<div class="unmapped-note">⚠ ' + CHANNEL_UNMAPPED.length + ' city name(s) not found in the cluster map, excluded from cluster/region views: ' + CHANNEL_UNMAPPED.join(', ') + '</div>' : '');
+    setStatus('note status-ok', '<b>Live data connected</b> — ' + RAW_LEADS.length.toLocaleString('en-IN') + ' unique lead(s) loaded from the Google Sheet just now.' +
+      (CHANNEL_UNMAPPED.length ? '<div class="unmapped-note">⚠ ' + CHANNEL_UNMAPPED.length + ' city name(s) not found in the cluster map, excluded from cluster/region views: ' + CHANNEL_UNMAPPED.join(', ') + '</div>' : ''));
     initChannelPage();
+    initCohortPage();
   } catch(err){
     CHANNEL_LOAD_ERROR = true;
-    statusEl.className = 'note status-err';
-    statusEl.innerHTML = '<b>Could not load live data.</b> ' + err.message + '. Check your internet connection or confirm the sheet is still published to web, then reload this page.';
+    setStatus('note status-err', '<b>Could not load live data.</b> ' + err.message + '. Check your internet connection or confirm the sheet is still published to web, then reload this page.');
   }
 }
 
@@ -618,6 +660,31 @@ function initChannelPage(){
   clusterMultiA.innerHTML = REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="'+c+'">'+c+'</option>').join('');
   clusterMultiA.size = Math.min(6, REAL_CLUSTER_NAMES.length);
 
+  const clusterSelMix = document.getElementById('clusterSelMix');
+  clusterSelMix.innerHTML = REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="'+c+'">'+c+'</option>').join('');
+
+  chanSelA.addEventListener('change', drawSectionA);
+  document.getElementById('scopeSelA').addEventListener('change', drawSectionA);
+  clusterMultiA.addEventListener('change', drawSectionA);
+  clusterSelMix.addEventListener('change', drawSectionMix);
+
+  document.querySelectorAll('#channelViewToggle .toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#channelViewToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('viewContrib').style.display = btn.dataset.view === 'contrib' ? 'block' : 'none';
+      document.getElementById('viewMix').style.display = btn.dataset.view === 'mix' ? 'block' : 'none';
+    });
+  });
+
+  drawSectionA();
+  drawSectionMix();
+}
+
+function initCohortPage(){
+  const clusterSelCohort = document.getElementById('clusterSelCohort');
+  clusterSelCohort.innerHTML = '<option value="__all__">All India</option>' + REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="'+c+'">'+c+'</option>').join('');
+
   const chanSelB = document.getElementById('chanSelB');
   chanSelB.innerHTML = '<option value="__all__">All Channels</option>' + CHANNELS.map(c => '<option value="'+c+'">'+c+'</option>').join('');
 
@@ -626,9 +693,7 @@ function initChannelPage(){
   dayMonthPicker.innerHTML = months.map(m => '<option value="'+m.year+'-'+m.month+'">'+monthLabel(m)+'</option>').join('');
   if(months.length) dayMonthPicker.value = months[months.length-1].year + '-' + months[months.length-1].month;
 
-  chanSelA.addEventListener('change', drawSectionA);
-  document.getElementById('scopeSelA').addEventListener('change', drawSectionA);
-  clusterMultiA.addEventListener('change', drawSectionA);
+  clusterSelCohort.addEventListener('change', drawSectionB);
   chanSelB.addEventListener('change', drawSectionB);
   dayMonthPicker.addEventListener('change', drawSectionB);
   document.querySelectorAll('#granToggle .toggle-btn').forEach(btn => {
@@ -640,7 +705,6 @@ function initChannelPage(){
     });
   });
 
-  drawSectionA();
   drawSectionB();
 }
 
@@ -703,6 +767,43 @@ function drawSectionA(){
   renderLineChart('chartWrapA', months.map(monthLabel), series, '%');
 }
 
+function drawSectionMix(){
+  const cluster = document.getElementById('clusterSelMix').value;
+  const months = getAvailableMonths();
+  if(!cluster || !months.length) return;
+  document.getElementById('periodPillMix').textContent = cluster + ' · ' + monthLabel(months[0]) + ' → ' + monthLabel(months[months.length-1]);
+
+  const rows = CHANNELS.map(channel => {
+    const cells = months.map(m => {
+      const key = m.year + '-' + m.month;
+      const bucket = (AGG_MC[key] && AGG_MC[key][cluster]) || {total:0, channels:{}};
+      const chanCount = bucket.channels[channel] || 0;
+      const pct = bucket.total > 0 ? (chanCount / bucket.total * 100) : null;
+      const cls = pct === null ? 'contrib-lo' : (pct >= 30 ? 'contrib-hi' : (pct >= 10 ? 'contrib-mid' : 'contrib-lo'));
+      return '<td><span class="contrib-cell ' + cls + '">' + (pct === null ? '—' : pct.toFixed(0) + '%') + '</span></td>';
+    }).join('');
+    return '<tr><td class="cluster-name">' + channel + '</td>' + cells + '</tr>';
+  }).join('');
+
+  document.getElementById('mixGridWrap').innerHTML =
+    '<table><thead><tr><th class="cluster-col">Channel</th>' +
+    months.map(m => '<th>' + monthLabel(m) + '</th>').join('') +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+
+  const palette = ['#0f6e5c','#c53d3d','#8a5a00','#1f6fd1','#8a3fd1','#d1478a','#2aa198'];
+  const series = CHANNELS.map((channel, i) => {
+    const line = months.map(m => {
+      const key = m.year + '-' + m.month;
+      const bucket = (AGG_MC[key] && AGG_MC[key][cluster]) || {total:0, channels:{}};
+      const chanCount = bucket.channels[channel] || 0;
+      return bucket.total > 0 ? (chanCount / bucket.total * 100) : 0;
+    });
+    return {name: channel, color: palette[i % palette.length], values: line};
+  });
+
+  renderLineChart('chartWrapMix', months.map(monthLabel), series, '%');
+}
+
 function buildFunnelSeries(leads, periodKeyFn, periods){
   const map = {};
   periods.forEach(p => map[p.key] = {bql:0,lrm:0,ms:0,md:0,hoto:0});
@@ -719,9 +820,11 @@ function buildFunnelSeries(leads, periodKeyFn, periods){
 }
 
 function drawSectionB(){
+  const cluster = document.getElementById('clusterSelCohort').value;
   const channel = document.getElementById('chanSelB').value;
   const gran = document.querySelector('#granToggle .toggle-btn.active').dataset.gran;
   let leads = channel === '__all__' ? RAW_LEADS : RAW_LEADS.filter(l => l.channel === channel);
+  if(cluster !== '__all__') leads = leads.filter(l => l.city === cluster);
 
   let periods = [], periodKeyFn, filteredLeads = leads;
   const months = getAvailableMonths();
@@ -750,7 +853,7 @@ function drawSectionB(){
   }
 
   const series = buildFunnelSeries(filteredLeads, periodKeyFn || (() => ''), periods);
-  document.getElementById('periodPillB').textContent = (channel === '__all__' ? 'All Channels' : channel) + ' · ' + (gran === 'month' ? 'Month-on-Month' : (gran === 'week' ? 'Week-on-Week (last 3 months)' : 'Day-on-Day'));
+  document.getElementById('periodPillB').textContent = (cluster === '__all__' ? 'All India' : cluster) + ' · ' + (channel === '__all__' ? 'All Channels' : channel) + ' · ' + (gran === 'month' ? 'Month-on-Month' : (gran === 'week' ? 'Week-on-Week (last 3 months)' : 'Day-on-Day'));
 
   const rowsHtml = series.map(s => {
     const conv = (a,b) => a > 0 ? ((b/a)*100).toFixed(0) + '%' : '—';
