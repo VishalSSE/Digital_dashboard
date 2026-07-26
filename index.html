@@ -206,7 +206,7 @@
     <div class="side-section">
       <div class="side-label">Overview</div>
       <div class="side-item active" id="nav-mom" onclick="showPage('mom')">MoM Funnel (Cluster-wise)</div>
-      <div class="side-item" style="opacity:.5;cursor:default;">Target vs Achievement</div>
+      <div class="side-item" id="nav-targets" onclick="showPage('targets')">Target vs Achievement</div>
       <div class="side-item" style="opacity:.5;cursor:default;">LMTD vs MTD</div>
     </div>
     <div class="side-section">
@@ -349,6 +349,62 @@
       </div>
       <div id="chartWrapB" class="chart-wrap"></div>
       <div id="funnelTableWrapB" class="table-wrap"></div>
+    </div>
+  </div>
+
+  <div id="page-targets" class="page-view" style="display:none;">
+    <div class="page-title">Target vs Achievement</div>
+    <div class="page-sub">BQL targets Jan–Dec 2026 (live) vs achievement · cohort basis · unique leads only</div>
+
+    <div class="note" id="targetsLoadStatus">Connecting to live sheets…</div>
+
+    <div class="controls" style="margin-bottom:18px;">
+      <div><label>View</label>
+        <div class="toggle-group" id="targetsViewToggle">
+          <button type="button" class="toggle-btn active" data-view="bql">BQL Target vs Achievement</button>
+          <button type="button" class="toggle-btn" data-view="funnel">Funnel Target vs Achievement</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="viewTargetsBQL">
+      <div class="section-card">
+        <div class="section-head">
+          <div class="section-title">BQL Target vs Achievement <span class="section-tag">Day-on-Day</span></div>
+          <div class="section-desc">Monthly (or MTD, for the running month) target vs achieved, daily target, and the day-on-day trail for the month.</div>
+        </div>
+        <div class="controls">
+          <div><label>Month</label><select id="tgtMonthSelBQL"></select></div>
+          <div><label>Scope</label>
+            <select id="tgtScopeSelBQL">
+              <option value="non-expansion">India Non-Expansion</option>
+              <option value="expansion">India Expansion</option>
+            </select>
+          </div>
+          <div class="pill" id="tgtPillBQL"></div>
+        </div>
+        <div id="tgtRegionContainerBQL"></div>
+      </div>
+    </div>
+
+    <div id="viewTargetsFunnel" style="display:none;">
+      <div class="section-card">
+        <div class="section-head">
+          <div class="section-title">Funnel Target vs Achievement <span class="section-tag">All 5 Stages</span></div>
+          <div class="section-desc">Monthly (or MTD, for the running month) target vs achieved for BQL → Lead to LRM → First MS → First MD → HoTo.</div>
+        </div>
+        <div class="controls">
+          <div><label>Month</label><select id="tgtMonthSelFunnel"></select></div>
+          <div><label>Scope</label>
+            <select id="tgtScopeSelFunnel">
+              <option value="non-expansion">India Non-Expansion</option>
+              <option value="expansion">India Expansion</option>
+            </select>
+          </div>
+          <div class="pill" id="tgtPillFunnel"></div>
+        </div>
+        <div id="tgtRegionContainerFunnel"></div>
+      </div>
     </div>
   </div>
   </div>
@@ -511,7 +567,10 @@ function showPage(id){
   document.getElementById('nav-mom').classList.toggle('active', id === 'mom');
   document.getElementById('nav-channel').classList.toggle('active', id === 'channel');
   document.getElementById('nav-cohort').classList.toggle('active', id === 'cohort');
-  if((id === 'channel' || id === 'cohort') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) loadChannelData();
+  document.getElementById('nav-targets').classList.toggle('active', id === 'targets');
+  if((id === 'channel' || id === 'cohort' || id === 'targets') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) loadChannelData();
+  if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) loadTargetsData();
+  if(id === 'targets') updateTargetsStatus();
 }
 
 // =====================================================================
@@ -523,6 +582,7 @@ const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 
 let RAW_LEADS = [];
 let AGG_MC = null; // {year-month: {clusterName: {total, channels:{}}}}
+let AGG_CD = null; // {clusterName: {year-month: {days:{d:{bql,lrm,ms,md,hoto}}, total:{...}}}}
 let CHANNEL_UNMAPPED = [];
 let CHANNEL_DATA_LOADED = false;
 let CHANNEL_LOAD_ERROR = false;
@@ -594,14 +654,19 @@ async function loadChannelData(){
     }
     CHANNEL_UNMAPPED = [...unmappedCities];
     buildAggMC();
+    buildAggCD();
     CHANNEL_DATA_LOADED = true;
     setStatus('note status-ok', '<b>Live data connected</b> — ' + RAW_LEADS.length.toLocaleString('en-IN') + ' unique lead(s) loaded from the Google Sheet just now.' +
       (CHANNEL_UNMAPPED.length ? '<div class="unmapped-note">⚠ ' + CHANNEL_UNMAPPED.length + ' city name(s) not found in the cluster map, excluded from cluster/region views: ' + CHANNEL_UNMAPPED.join(', ') + '</div>' : ''));
     initChannelPage();
     initCohortPage();
+    updateTargetsStatus();
+    maybeInitTargetsPage();
   } catch(err){
     CHANNEL_LOAD_ERROR = true;
     setStatus('note status-err', '<b>Could not load live data.</b> ' + err.message + '. Check your internet connection or confirm the sheet is still published to web, then reload this page.');
+    const tgtEl = document.getElementById('targetsLoadStatus');
+    if(tgtEl){ tgtEl.className = 'note status-err'; tgtEl.innerHTML = '<b>Could not load achievement data.</b> ' + err.message + '. Target vs Achievement needs the live leads sheet too — reload this page once your connection is back.'; }
   }
 }
 
@@ -618,11 +683,261 @@ function buildAggMC(){
   });
 }
 
+function buildAggCD(){
+  AGG_CD = {};
+  RAW_LEADS.forEach(l => {
+    if(!l.city) return;
+    if(!AGG_CD[l.city]) AGG_CD[l.city] = {};
+    const mkey = l.year + '-' + l.month;
+    if(!AGG_CD[l.city][mkey]) AGG_CD[l.city][mkey] = {days:{}, total:{bql:0,lrm:0,ms:0,md:0,hoto:0}};
+    const mObj = AGG_CD[l.city][mkey];
+    if(!mObj.days[l.day]) mObj.days[l.day] = {bql:0,lrm:0,ms:0,md:0,hoto:0};
+    mObj.days[l.day].bql++; mObj.total.bql++;
+    if(l.lrm){ mObj.days[l.day].lrm++; mObj.total.lrm++; }
+    if(l.ms){ mObj.days[l.day].ms++; mObj.total.ms++; }
+    if(l.md){ mObj.days[l.day].md++; mObj.total.md++; }
+    if(l.hoto){ mObj.days[l.day].hoto++; mObj.total.hoto++; }
+  });
+}
+function getClusterMonthTotal(city, year, month, stageKey){
+  const mkey = year + '-' + month;
+  return (AGG_CD[city] && AGG_CD[city][mkey]) ? AGG_CD[city][mkey].total[stageKey] : 0;
+}
+function getClusterDayVal(city, year, month, day, stageKey){
+  const mkey = year + '-' + month;
+  const dObj = AGG_CD[city] && AGG_CD[city][mkey] && AGG_CD[city][mkey].days[day];
+  return dObj ? dObj[stageKey] : 0;
+}
+function getClusterMTDTotal(city, year, month, uptoDay, stageKey){
+  let sum = 0;
+  for(let d = 1; d <= uptoDay; d++) sum += getClusterDayVal(city, year, month, d, stageKey);
+  return sum;
+}
+
 function getAvailableMonths(){
   const set = new Set(RAW_LEADS.map(l => l.year * 100 + l.month));
   return [...set].sort((a,b) => a-b).map(v => ({year: Math.floor(v/100), month: v % 100}));
 }
 function monthLabel(m){ return MONTH_NAMES[m.month - 1] + ' ' + m.year; }
+
+// =====================================================================
+// SECTION: Target vs Achievement (live Targets sheet + live leads sheet)
+// =====================================================================
+const TARGETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRfOXZWZSq-qGw5GVucOxS0Y_YN5q42f-7ifWKONxkrtTYavAphOG6ytxLxWGIQbyoSRg_u8MWFsKbe/pub?gid=2121403375&single=true&output=csv";
+const TARGET_STAGE_BLOCKS = [
+  {key:'bql', startCol:1},
+  {key:'lrm', startCol:13},
+  {key:'ms', startCol:25},
+  {key:'md', startCol:37},
+  {key:'hoto', startCol:49}
+];
+let TARGETS = null;
+let TARGETS_LOADED = false;
+let TARGETS_LOAD_ERROR = false;
+let TARGETS_UNMATCHED = [];
+let TARGETS_PAGE_INIT = false;
+
+function parseNum(s){
+  if(s === undefined || s === null) return 0;
+  const cleaned = String(s).replace(/,/g, '').trim();
+  if(cleaned === '') return 0;
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+
+async function loadTargetsData(){
+  const statusEl = document.getElementById('targetsLoadStatus');
+  try {
+    const res = await fetch(TARGETS_CSV_URL, {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const rows = parseCSV(text);
+    if(!rows.length) throw new Error('Sheet returned no data');
+
+    const knownSet = {};
+    REAL_CLUSTER_NAMES.forEach(c => knownSet[c.toLowerCase()] = c);
+    const headerWords = /^cluster$|^bql$|^ms$|^md$|^hoto$|lead sent to lrm/i;
+
+    TARGETS = {};
+    TARGETS_UNMATCHED = [];
+    rows.forEach(row => {
+      const raw = (row[0] || '').trim();
+      if(!raw) return;
+      const match = knownSet[raw.toLowerCase()];
+      if(!match){
+        if(!headerWords.test(raw)) TARGETS_UNMATCHED.push(raw);
+        return;
+      }
+      const entry = {};
+      TARGET_STAGE_BLOCKS.forEach(b => {
+        entry[b.key] = [];
+        for(let i = 0; i < 12; i++) entry[b.key].push(parseNum(row[b.startCol + i]));
+      });
+      TARGETS[match] = entry;
+    });
+
+    TARGETS_LOADED = true;
+    updateTargetsStatus();
+    maybeInitTargetsPage();
+  } catch(err){
+    TARGETS_LOAD_ERROR = true;
+    if(statusEl){ statusEl.className = 'note status-err'; statusEl.innerHTML = '<b>Could not load targets sheet.</b> ' + err.message + '. Confirm the sheet is still published to web, then reload this page.'; }
+  }
+}
+
+function updateTargetsStatus(){
+  const statusEl = document.getElementById('targetsLoadStatus');
+  if(!statusEl) return;
+  if(TARGETS_LOAD_ERROR || CHANNEL_LOAD_ERROR) return; // error states set their own message
+  if(TARGETS_LOADED && CHANNEL_DATA_LOADED){
+    statusEl.className = 'note status-ok';
+    statusEl.innerHTML = '<b>Live data connected</b> — targets loaded for ' + Object.keys(TARGETS).length + ' cluster(s); achievement from ' + RAW_LEADS.length.toLocaleString('en-IN') + ' unique lead(s).' +
+      (TARGETS_UNMATCHED.length ? '<div class="unmapped-note">⚠ Target sheet row(s) not matched to a known cluster, skipped: ' + TARGETS_UNMATCHED.join(', ') + '</div>' : '');
+  } else {
+    statusEl.className = 'note';
+    statusEl.innerHTML = 'Connecting to live sheets… (targets ' + (TARGETS_LOADED ? '✓' : '…') + ', leads ' + (CHANNEL_DATA_LOADED ? '✓' : '…') + ')';
+  }
+}
+
+function maybeInitTargetsPage(){
+  if(TARGETS_LOADED && CHANNEL_DATA_LOADED) initTargetsPage();
+}
+
+function isCurrentMonth(year, month){
+  const now = new Date();
+  return now.getFullYear() === year && (now.getMonth() + 1) === month;
+}
+
+function getTarget(city, month, stageKey){
+  const t = TARGETS && TARGETS[city];
+  if(!t || !t[stageKey]) return 0;
+  return t[stageKey][month - 1] || 0;
+}
+
+function initTargetsPage(){
+  if(!TARGETS_LOADED || !CHANNEL_DATA_LOADED) return;
+  if(!TARGETS_PAGE_INIT){
+    const months2026 = getAvailableMonths().filter(m => m.year === 2026);
+    const monthOptions = months2026.map(m => '<option value="' + m.year + '-' + m.month + '">' + monthLabel(m) + '</option>').join('');
+    const msB = document.getElementById('tgtMonthSelBQL');
+    const msF = document.getElementById('tgtMonthSelFunnel');
+    msB.innerHTML = monthOptions;
+    msF.innerHTML = monthOptions;
+    if(months2026.length){
+      const last = months2026[months2026.length - 1];
+      msB.value = last.year + '-' + last.month;
+      msF.value = last.year + '-' + last.month;
+    }
+
+    msB.addEventListener('change', drawTargetsBQL);
+    document.getElementById('tgtScopeSelBQL').addEventListener('change', drawTargetsBQL);
+    msF.addEventListener('change', drawTargetsFunnel);
+    document.getElementById('tgtScopeSelFunnel').addEventListener('change', drawTargetsFunnel);
+
+    document.querySelectorAll('#targetsViewToggle .toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#targetsViewToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('viewTargetsBQL').style.display = btn.dataset.view === 'bql' ? 'block' : 'none';
+        document.getElementById('viewTargetsFunnel').style.display = btn.dataset.view === 'funnel' ? 'block' : 'none';
+      });
+    });
+    TARGETS_PAGE_INIT = true;
+  }
+  drawTargetsBQL();
+  drawTargetsFunnel();
+}
+
+function drawTargetsBQL(){
+  const monthSel = document.getElementById('tgtMonthSelBQL');
+  if(!monthSel.value) return;
+  const [year, month] = monthSel.value.split('-').map(Number);
+  const scope = document.getElementById('tgtScopeSelBQL').value;
+  const daysInMon = new Date(year, month, 0).getDate();
+  const curMonth = isCurrentMonth(year, month);
+  const completedDays = curMonth ? Math.max(0, new Date().getDate() - 1) : daysInMon;
+
+  document.getElementById('tgtPillBQL').textContent = monthLabel({year, month}) +
+    (curMonth ? ' · MTD (through Day ' + completedDays + ')' : ' · Full Month') +
+    ' · ' + (scope === 'non-expansion' ? 'India Non-Expansion' : 'India Expansion');
+
+  const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
+  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
+
+  document.getElementById('tgtRegionContainerBQL').innerHTML = regions.map(region => {
+    const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
+    const rows = clustersInRegion.map(c => {
+      const monthlyTarget = getTarget(c, month, 'bql');
+      const dailyTarget = daysInMon > 0 ? (monthlyTarget / daysInMon) : 0;
+      const displayTarget = curMonth ? dailyTarget * completedDays : monthlyTarget;
+      const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, 'bql') : getClusterMonthTotal(c, year, month, 'bql');
+      const pct = displayTarget > 0 ? (achieved / displayTarget * 100) : null;
+      const pctCls = pct === null ? 'contrib-lo' : (pct >= 100 ? 'contrib-hi' : (pct >= 80 ? 'contrib-mid' : 'contrib-lo'));
+      const dayCols = curMonth ? completedDays : daysInMon;
+      let dayCells = '';
+      for(let d = 1; d <= dayCols; d++){
+        dayCells += '<td>' + getClusterDayVal(c, year, month, d, 'bql').toLocaleString('en-IN') + '</td>';
+      }
+      return '<tr><td class="cluster-name">' + c + '</td>' +
+        '<td>' + Math.round(displayTarget).toLocaleString('en-IN') + '</td>' +
+        '<td>' + Math.round(dailyTarget).toLocaleString('en-IN') + '</td>' +
+        '<td>' + achieved.toLocaleString('en-IN') + '</td>' +
+        '<td class="conv-td"><span class="conv-cell contrib-cell ' + pctCls + '">' + (pct === null ? '—' : pct.toFixed(0) + '%') + '</span></td>' +
+        dayCells + '</tr>';
+    }).join('');
+
+    const dayCols = curMonth ? completedDays : daysInMon;
+    let dayHeaders = '';
+    for(let d = 1; d <= dayCols; d++) dayHeaders += '<th>D' + d + '</th>';
+
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead><tr><th class="cluster-col">Cluster</th>' +
+      '<th>' + (curMonth ? 'MTD Target' : 'Monthly Target') + '</th><th>Daily Target</th><th>' + (curMonth ? 'MTD Achieved' : 'Monthly Achieved') + '</th><th class="conv-head">Tgt vs Ach %</th>' +
+      dayHeaders +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
+}
+
+function drawTargetsFunnel(){
+  const monthSel = document.getElementById('tgtMonthSelFunnel');
+  if(!monthSel.value) return;
+  const [year, month] = monthSel.value.split('-').map(Number);
+  const scope = document.getElementById('tgtScopeSelFunnel').value;
+  const daysInMon = new Date(year, month, 0).getDate();
+  const curMonth = isCurrentMonth(year, month);
+  const completedDays = curMonth ? Math.max(0, new Date().getDate() - 1) : daysInMon;
+
+  document.getElementById('tgtPillFunnel').textContent = monthLabel({year, month}) +
+    (curMonth ? ' · MTD (through Day ' + completedDays + ')' : ' · Full Month') +
+    ' · ' + (scope === 'non-expansion' ? 'India Non-Expansion' : 'India Expansion');
+
+  const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
+  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
+  const stages = [{key:'bql', label:'BQL'}, {key:'lrm', label:'Lead→LRM'}, {key:'ms', label:'First MS'}, {key:'md', label:'First MD'}, {key:'hoto', label:'HoTo'}];
+
+  document.getElementById('tgtRegionContainerFunnel').innerHTML = regions.map(region => {
+    const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
+    const rows = clustersInRegion.map(c => {
+      const cells = stages.map(s => {
+        const monthlyTarget = getTarget(c, month, s.key);
+        const displayTarget = curMonth ? (daysInMon > 0 ? monthlyTarget / daysInMon * completedDays : 0) : monthlyTarget;
+        const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, s.key) : getClusterMonthTotal(c, year, month, s.key);
+        const pct = displayTarget > 0 ? (achieved / displayTarget * 100) : null;
+        const pctCls = pct === null ? 'contrib-lo' : (pct >= 100 ? 'contrib-hi' : (pct >= 80 ? 'contrib-mid' : 'contrib-lo'));
+        return '<td>' + Math.round(displayTarget).toLocaleString('en-IN') + '</td><td>' + achieved.toLocaleString('en-IN') + '</td>' +
+          '<td class="conv-td"><span class="conv-cell contrib-cell ' + pctCls + '">' + (pct === null ? '—' : pct.toFixed(0) + '%') + '</span></td>';
+      }).join('');
+      return '<tr><td class="cluster-name">' + c + '</td>' + cells + '</tr>';
+    }).join('');
+
+    const stageHeaders = stages.map(s => '<th>' + s.label + ' Tgt</th><th>' + s.label + ' Ach</th><th class="conv-head">' + s.label + ' %</th>').join('');
+
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead><tr><th class="cluster-col">Cluster</th>' + stageHeaders + '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
+}
 
 function weekStart(date){
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
