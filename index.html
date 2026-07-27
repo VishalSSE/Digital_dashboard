@@ -187,6 +187,27 @@
   }
   .status-ok{background:var(--up-bg);color:var(--up);border-color:#bfe4cf;}
   .status-err{background:var(--down-bg);color:var(--down);border-color:#f0c2c2;}
+
+  .key-overlay{
+    position:fixed;inset:0;background:rgba(15,20,25,.6);display:none;
+    align-items:center;justify-content:center;z-index:9999;
+  }
+  .key-modal{
+    background:#fff;border-radius:12px;padding:26px 28px;width:340px;max-width:90vw;
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
+  }
+  .key-modal h3{font-size:16px;margin-bottom:6px;}
+  .key-modal p{font-size:12.5px;color:var(--ink-soft);margin-bottom:14px;line-height:1.5;}
+  .key-modal input{
+    width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:7px;
+    font-size:13.5px;margin-bottom:12px;box-sizing:border-box;
+  }
+  .key-modal button{
+    width:100%;padding:9px;background:var(--accent);color:#fff;border:none;border-radius:7px;
+    font-size:13.5px;font-weight:600;cursor:pointer;
+  }
+  .key-modal button:hover{opacity:.92;}
+  .key-modal .key-err{color:var(--down);font-size:11.5px;margin-top:8px;display:none;}
 </style>
 </head>
 <body>
@@ -410,6 +431,16 @@
   </div>
 </div>
 
+<div class="key-overlay" id="accessKeyOverlay">
+  <div class="key-modal">
+    <h3>🔒 Live Data Access</h3>
+    <p>This view pulls live lead/target data through a protected endpoint. Enter the access key to continue — it's never stored in this page.</p>
+    <input type="password" id="accessKeyInput" placeholder="Access key" onkeydown="if(event.key==='Enter') submitAccessKey()">
+    <button onclick="submitAccessKey()">Unlock</button>
+    <div class="key-err" id="accessKeyErr">Incorrect key — please try again.</div>
+  </div>
+</div>
+
 <script>
 // ---------- FUNNEL STAGES ----------
 const STAGES = [
@@ -568,15 +599,68 @@ function showPage(id){
   document.getElementById('nav-channel').classList.toggle('active', id === 'channel');
   document.getElementById('nav-cohort').classList.toggle('active', id === 'cohort');
   document.getElementById('nav-targets').classList.toggle('active', id === 'targets');
-  if((id === 'channel' || id === 'cohort' || id === 'targets') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) loadChannelData();
-  if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) loadTargetsData();
+  if((id === 'channel' || id === 'cohort' || id === 'targets') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) ensureAccessKey(() => loadChannelData());
+  if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) ensureAccessKey(() => loadTargetsData());
   if(id === 'targets') updateTargetsStatus();
 }
 
 // =====================================================================
 // SECTION: BQL MoM — Channel-wise (live from Google Sheet)
 // =====================================================================
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRfOXZWZSq-qGw5GVucOxS0Y_YN5q42f-7ifWKONxkrtTYavAphOG6ytxLxWGIQbyoSRg_u8MWFsKbe/pub?gid=694220831&single=true&output=csv";
+// ===== Gated live-data proxy (Apps Script Web App) =====
+// Replace this with your deployed Apps Script Web App URL (ends in /exec).
+// See apps_script_proxy.gs for the server-side code to deploy.
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzhzSdAQrFy6X6yDdI-SG3m9YQw16qfRJOpBj9PxGe2K0HMIHBRfg8g_kInB0gNQDjY/exec";
+
+let ACCESS_KEY = null;
+let PENDING_AFTER_KEY = [];
+let LAST_ATTEMPT_CALLBACKS = [];
+
+function ensureAccessKey(callback){
+  if(ACCESS_KEY){ callback(); return; }
+  PENDING_AFTER_KEY.push(callback);
+  document.getElementById('accessKeyOverlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('accessKeyInput').focus(), 50);
+}
+
+function submitAccessKey(){
+  const input = document.getElementById('accessKeyInput');
+  const val = input.value.trim();
+  if(!val) return;
+  ACCESS_KEY = val;
+  input.value = '';
+  document.getElementById('accessKeyErr').style.display = 'none';
+  document.getElementById('accessKeyOverlay').style.display = 'none';
+  const cbs = PENDING_AFTER_KEY.slice();
+  PENDING_AFTER_KEY = [];
+  LAST_ATTEMPT_CALLBACKS = cbs;
+  cbs.forEach(cb => cb());
+}
+
+function handleBadKey(){
+  ACCESS_KEY = null;
+  const errEl = document.getElementById('accessKeyErr');
+  if(errEl) errEl.style.display = 'block';
+  const overlay = document.getElementById('accessKeyOverlay');
+  if(overlay) overlay.style.display = 'flex';
+  // re-queue the same action(s) so correcting the key retries them automatically
+  PENDING_AFTER_KEY = LAST_ATTEMPT_CALLBACKS.slice();
+  setTimeout(() => document.getElementById('accessKeyInput').focus(), 50);
+}
+
+async function fetchViaProxy(type){
+  const url = APPS_SCRIPT_URL + '?type=' + type + '&key=' + encodeURIComponent(ACCESS_KEY);
+  const res = await fetch(url, {cache:'no-store'});
+  if(!res.ok) throw new Error('HTTP ' + res.status);
+  const text = await res.text();
+  if(text.trim() === 'Unauthorized'){
+    const e = new Error('Incorrect access key.');
+    e.isAuthError = true;
+    throw e;
+  }
+  return text;
+}
+
 const CHANNELS = ["Google - Search","Google - PMax","Google - Demand Gen","Meta Web","Meta Form","Organic","Direct"];
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -617,9 +701,7 @@ async function loadChannelData(){
   };
   setStatus('note', 'Connecting to live sheet…');
   try {
-    const res = await fetch(SHEET_CSV_URL, {cache:'no-store'});
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const text = await res.text();
+    const text = await fetchViaProxy('leads');
     const rows = parseCSV(text);
     if(!rows.length) throw new Error('Sheet returned no data');
     const header = rows[0].map(h => h.trim());
@@ -663,10 +745,17 @@ async function loadChannelData(){
     updateTargetsStatus();
     maybeInitTargetsPage();
   } catch(err){
+    if(err.isAuthError){
+      setStatus('note', 'Enter the access key to load live data.');
+      const tgtEl = document.getElementById('targetsLoadStatus');
+      if(tgtEl){ tgtEl.className = 'note'; tgtEl.innerHTML = 'Enter the access key to load live data.'; }
+      handleBadKey();
+      return;
+    }
     CHANNEL_LOAD_ERROR = true;
-    setStatus('note status-err', '<b>Could not load live data.</b> ' + err.message + '. Check your internet connection or confirm the sheet is still published to web, then reload this page.');
+    setStatus('note status-err', '<b>Could not load live data.</b> ' + err.message + '. Check your internet connection or confirm the Apps Script proxy is deployed correctly, then reload this page.');
     const tgtEl = document.getElementById('targetsLoadStatus');
-    if(tgtEl){ tgtEl.className = 'note status-err'; tgtEl.innerHTML = '<b>Could not load achievement data.</b> ' + err.message + '. Target vs Achievement needs the live leads sheet too — reload this page once your connection is back.'; }
+    if(tgtEl){ tgtEl.className = 'note status-err'; tgtEl.innerHTML = '<b>Could not load achievement data.</b> ' + err.message + '. Target vs Achievement needs the live leads sheet too — reload this page once fixed.'; }
   }
 }
 
@@ -723,7 +812,6 @@ function monthLabel(m){ return MONTH_NAMES[m.month - 1] + ' ' + m.year; }
 // =====================================================================
 // SECTION: Target vs Achievement (live Targets sheet + live leads sheet)
 // =====================================================================
-const TARGETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRfOXZWZSq-qGw5GVucOxS0Y_YN5q42f-7ifWKONxkrtTYavAphOG6ytxLxWGIQbyoSRg_u8MWFsKbe/pub?gid=2121403375&single=true&output=csv";
 const TARGET_STAGE_BLOCKS = [
   {key:'bql', startCol:1},
   {key:'lrm', startCol:13},
@@ -748,9 +836,7 @@ function parseNum(s){
 async function loadTargetsData(){
   const statusEl = document.getElementById('targetsLoadStatus');
   try {
-    const res = await fetch(TARGETS_CSV_URL, {cache:'no-store'});
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const text = await res.text();
+    const text = await fetchViaProxy('targets');
     const rows = parseCSV(text);
     if(!rows.length) throw new Error('Sheet returned no data');
 
@@ -780,8 +866,13 @@ async function loadTargetsData(){
     updateTargetsStatus();
     maybeInitTargetsPage();
   } catch(err){
+    if(err.isAuthError){
+      if(statusEl){ statusEl.className = 'note'; statusEl.innerHTML = 'Enter the access key to load live data.'; }
+      handleBadKey();
+      return;
+    }
     TARGETS_LOAD_ERROR = true;
-    if(statusEl){ statusEl.className = 'note status-err'; statusEl.innerHTML = '<b>Could not load targets sheet.</b> ' + err.message + '. Confirm the sheet is still published to web, then reload this page.'; }
+    if(statusEl){ statusEl.className = 'note status-err'; statusEl.innerHTML = '<b>Could not load targets sheet.</b> ' + err.message + '. Confirm the Apps Script proxy is deployed correctly, then reload this page.'; }
   }
 }
 
