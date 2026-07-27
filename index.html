@@ -187,6 +187,18 @@
   }
   .status-ok{background:var(--up-bg);color:var(--up);border-color:#bfe4cf;}
   .status-err{background:var(--down-bg);color:var(--down);border-color:#f0c2c2;}
+  .day-hit{background:var(--up-bg)!important;color:var(--up);font-weight:700;}
+  .day-miss{background:var(--down-bg)!important;color:var(--down);font-weight:700;}
+  .trend-up{color:var(--up);font-weight:700;}
+  .trend-down{color:var(--down);font-weight:700;}
+  .trend-flat{color:var(--ink-soft);}
+  .total-card{
+    background:var(--accent-soft);border:1px solid #bfe0d6;border-radius:10px;
+    margin-bottom:14px;overflow:hidden;
+  }
+  .total-card .table-wrap table thead th{background:var(--accent-soft);}
+  .total-card td.cluster-name{background:var(--accent-soft);font-weight:800;}
+  .total-card tbody td{font-weight:700;}
 
   .key-overlay{
     position:fixed;inset:0;background:rgba(15,20,25,.6);display:none;
@@ -905,6 +917,26 @@ function getTarget(city, month, stageKey){
   return t[stageKey][month - 1] || 0;
 }
 
+// Elapsed days for BQL/LRM MTD target: straightforward day count (today's date - 1)
+// Elapsed days for MS/MD/HOTO MTD target: excludes the 1st of the month and every Monday
+// (meetings/HoTo don't happen on those days), counted within [1, uptoDay].
+function countEffectiveElapsedDays(year, month, uptoDay){
+  let count = 0;
+  for(let d = 1; d <= uptoDay; d++){
+    if(d === 1) continue;
+    const dow = new Date(year, month - 1, d).getDay();
+    if(dow === 1) continue; // Monday
+    count++;
+  }
+  return count;
+}
+
+function mtdMultiplierForStage(stageKey, year, month, completedDays){
+  return (stageKey === 'ms' || stageKey === 'md' || stageKey === 'hoto')
+    ? countEffectiveElapsedDays(year, month, completedDays)
+    : completedDays;
+}
+
 function initTargetsPage(){
   if(!TARGETS_LOADED || !CHANNEL_DATA_LOADED) return;
   if(!TARGETS_PAGE_INIT){
@@ -939,6 +971,23 @@ function initTargetsPage(){
   drawTargetsFunnel();
 }
 
+function computeTrend(c, year, month, completedDays, stageKey){
+  if(completedDays < 10) return null; // need two full 5-day windows
+  let last5 = 0, prev5 = 0;
+  for(let d = completedDays - 4; d <= completedDays; d++) last5 += getClusterDayVal(c, year, month, d, stageKey);
+  for(let d = completedDays - 9; d <= completedDays - 5; d++) prev5 += getClusterDayVal(c, year, month, d, stageKey);
+  const pct = prev5 > 0 ? ((last5 - prev5) / prev5 * 100) : (last5 > 0 ? 100 : null);
+  return {prev5, last5, pct};
+}
+
+function trendHtml(trend){
+  if(!trend) return '<span class="conv-cell">—</span>';
+  const dir = trend.pct === null ? '' : (trend.pct >= 0 ? '▲' : '▼');
+  const cls = trend.pct === null ? 'trend-flat' : (trend.pct >= 0 ? 'trend-up' : 'trend-down');
+  const pctTxt = trend.pct === null ? '' : (' ' + dir + ' ' + Math.abs(trend.pct).toFixed(0) + '%');
+  return '<span class="' + cls + '">' + trend.prev5 + '→' + trend.last5 + pctTxt + '</span>';
+}
+
 function drawTargetsBQL(){
   const monthSel = document.getElementById('tgtMonthSelBQL');
   if(!monthSel.value) return;
@@ -954,41 +1003,82 @@ function drawTargetsBQL(){
 
   const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
   const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
+  const dayCols = curMonth ? completedDays : daysInMon;
 
-  document.getElementById('tgtRegionContainerBQL').innerHTML = regions.map(region => {
+  function computeRow(c){
+    const monthlyTarget = getTarget(c, month, 'bql');
+    const dailyTarget = daysInMon > 0 ? (monthlyTarget / daysInMon) : 0;
+    const displayTarget = curMonth ? dailyTarget * completedDays : monthlyTarget;
+    const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, 'bql') : getClusterMonthTotal(c, year, month, 'bql');
+    const pct = displayTarget > 0 ? ((achieved - displayTarget) / displayTarget * 100) : null;
+    return {c, monthlyTarget, dailyTarget, displayTarget, achieved, pct};
+  }
+
+  function rowHtml(r, isTotal){
+    const pctCls = r.pct === null ? 'contrib-lo' : (r.pct >= 0 ? 'contrib-hi' : 'contrib-lo');
+    const pctTxt = r.pct === null ? '—' : (r.pct >= 0 ? '+' : '') + r.pct.toFixed(0) + '%';
+    let dayCells = '';
+    for(let d = 1; d <= dayCols; d++){
+      const val = isTotal
+        ? clusterList.reduce((a,cn) => a + getClusterDayVal(cn, year, month, d, 'bql'), 0)
+        : getClusterDayVal(r.c, year, month, d, 'bql');
+      let cellCls = '';
+      if(curMonth && !isTotal) cellCls = val >= r.dailyTarget ? 'day-hit' : 'day-miss';
+      if(curMonth && isTotal) cellCls = val >= r.dailyTarget ? 'day-hit' : 'day-miss';
+      dayCells += '<td class="' + cellCls + '">' + val.toLocaleString('en-IN') + '</td>';
+    }
+    const trendCell = curMonth ? '<td class="conv-td">' + trendHtml(isTotal ? r.trend : computeTrend(r.c, year, month, completedDays, 'bql')) + '</td>' : '';
+    return '<tr><td class="cluster-name">' + r.c + '</td>' +
+      '<td>' + Math.round(r.displayTarget).toLocaleString('en-IN') + '</td>' +
+      '<td>' + Math.round(r.dailyTarget).toLocaleString('en-IN') + '</td>' +
+      '<td>' + r.achieved.toLocaleString('en-IN') + '</td>' +
+      '<td class="conv-td"><span class="conv-cell contrib-cell ' + pctCls + '">' + pctTxt + '</span></td>' +
+      dayCells + trendCell + '</tr>';
+  }
+
+  let dayHeaders = '';
+  for(let d = 1; d <= dayCols; d++) dayHeaders += '<th>D' + d + '</th>';
+  const trendHeader = curMonth ? '<th class="conv-head">Trend (5d vs 5d)</th>' : '';
+  const headerRow = '<tr><th class="cluster-col">Cluster</th>' +
+    '<th>' + (curMonth ? 'MTD Target' : 'Monthly Target') + '</th><th>Daily Target</th><th>' + (curMonth ? 'MTD Achieved' : 'Monthly Achieved') + '</th><th class="conv-head">Tgt vs Ach %</th>' +
+    dayHeaders + trendHeader + '</tr>';
+
+  // ---- Scope total (sum of all clusters currently in scope) ----
+  const allRows = clusterList.map(computeRow);
+  const totalRow = {
+    c: (scope === 'non-expansion' ? 'TOTAL — India Non-Expansion' : 'TOTAL — India Expansion'),
+    monthlyTarget: allRows.reduce((a,r) => a + r.monthlyTarget, 0),
+    dailyTarget: allRows.reduce((a,r) => a + r.dailyTarget, 0),
+    displayTarget: allRows.reduce((a,r) => a + r.displayTarget, 0),
+    achieved: allRows.reduce((a,r) => a + r.achieved, 0)
+  };
+  totalRow.pct = totalRow.displayTarget > 0 ? ((totalRow.achieved - totalRow.displayTarget) / totalRow.displayTarget * 100) : null;
+  if(curMonth){
+    let last5 = 0, prev5 = 0;
+    if(completedDays >= 10){
+      clusterList.forEach(c => {
+        for(let d = completedDays-4; d <= completedDays; d++) last5 += getClusterDayVal(c, year, month, d, 'bql');
+        for(let d = completedDays-9; d <= completedDays-5; d++) prev5 += getClusterDayVal(c, year, month, d, 'bql');
+      });
+      totalRow.trend = {prev5, last5, pct: prev5 > 0 ? ((last5-prev5)/prev5*100) : (last5>0?100:null)};
+    } else totalRow.trend = null;
+  }
+
+  const totalCard = '<div class="total-card"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' +
+    rowHtml(totalRow, true) + '</tbody></table></div></div>';
+
+  const regionBlocks = regions.map(region => {
     const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
-    const rows = clustersInRegion.map(c => {
-      const monthlyTarget = getTarget(c, month, 'bql');
-      const dailyTarget = daysInMon > 0 ? (monthlyTarget / daysInMon) : 0;
-      const displayTarget = curMonth ? dailyTarget * completedDays : monthlyTarget;
-      const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, 'bql') : getClusterMonthTotal(c, year, month, 'bql');
-      const pct = displayTarget > 0 ? (achieved / displayTarget * 100) : null;
-      const pctCls = pct === null ? 'contrib-lo' : (pct >= 100 ? 'contrib-hi' : (pct >= 80 ? 'contrib-mid' : 'contrib-lo'));
-      const dayCols = curMonth ? completedDays : daysInMon;
-      let dayCells = '';
-      for(let d = 1; d <= dayCols; d++){
-        dayCells += '<td>' + getClusterDayVal(c, year, month, d, 'bql').toLocaleString('en-IN') + '</td>';
-      }
-      return '<tr><td class="cluster-name">' + c + '</td>' +
-        '<td>' + Math.round(displayTarget).toLocaleString('en-IN') + '</td>' +
-        '<td>' + Math.round(dailyTarget).toLocaleString('en-IN') + '</td>' +
-        '<td>' + achieved.toLocaleString('en-IN') + '</td>' +
-        '<td class="conv-td"><span class="conv-cell contrib-cell ' + pctCls + '">' + (pct === null ? '—' : pct.toFixed(0) + '%') + '</span></td>' +
-        dayCells + '</tr>';
-    }).join('');
-
-    const dayCols = curMonth ? completedDays : daysInMon;
-    let dayHeaders = '';
-    for(let d = 1; d <= dayCols; d++) dayHeaders += '<th>D' + d + '</th>';
+    const rows = clustersInRegion.map(c => rowHtml(computeRow(c), false)).join('');
 
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
-      '<div class="region-body"><div class="table-wrap"><table><thead><tr><th class="cluster-col">Cluster</th>' +
-      '<th>' + (curMonth ? 'MTD Target' : 'Monthly Target') + '</th><th>Daily Target</th><th>' + (curMonth ? 'MTD Achieved' : 'Monthly Achieved') + '</th><th class="conv-head">Tgt vs Ach %</th>' +
-      dayHeaders +
-      '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
   }).join('');
+
+  document.getElementById('tgtRegionContainerBQL').innerHTML = totalCard + regionBlocks;
 }
+
 
 function drawTargetsFunnel(){
   const monthSel = document.getElementById('tgtMonthSelFunnel');
@@ -1006,29 +1096,72 @@ function drawTargetsFunnel(){
   const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
   const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
   const stages = [{key:'bql', label:'BQL'}, {key:'lrm', label:'Lead→LRM'}, {key:'ms', label:'First MS'}, {key:'md', label:'First MD'}, {key:'hoto', label:'HoTo'}];
+  const transitions = [
+    {from:'bql', to:'lrm', label:'BQL→LRM'},
+    {from:'lrm', to:'ms', label:'LRM→MS'},
+    {from:'ms', to:'md', label:'MS→MD'},
+    {from:'md', to:'hoto', label:'MD→HOTO'}
+  ];
 
-  document.getElementById('tgtRegionContainerFunnel').innerHTML = regions.map(region => {
+  function computeStageValues(c){
+    const out = {};
+    stages.forEach(s => {
+      const monthlyTarget = getTarget(c, month, s.key);
+      let displayTarget;
+      if(curMonth){
+        const mult = mtdMultiplierForStage(s.key, year, month, completedDays);
+        displayTarget = daysInMon > 0 ? (monthlyTarget / daysInMon * mult) : 0;
+      } else {
+        displayTarget = monthlyTarget;
+      }
+      const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, s.key) : getClusterMonthTotal(c, year, month, s.key);
+      out[s.key] = {target: displayTarget, achieved};
+    });
+    return out;
+  }
+
+  function convCell(vals, from, to){
+    const tgtPct = vals[from].target > 0 ? (vals[to].target / vals[from].target * 100) : null;
+    const achPct = vals[from].achieved > 0 ? (vals[to].achieved / vals[from].achieved * 100) : null;
+    return '<td class="conv-td">' + (tgtPct === null ? '—' : tgtPct.toFixed(0) + '%') + '</td>' +
+      '<td class="conv-td"><span class="conv-cell">' + (achPct === null ? '—' : achPct.toFixed(0) + '%') + '</span></td>';
+  }
+
+  function rowHtml(label, vals){
+    const targetCells = stages.map(s => '<td>' + Math.round(vals[s.key].target).toLocaleString('en-IN') + '</td>').join('');
+    const achievedCells = stages.map(s => '<td>' + vals[s.key].achieved.toLocaleString('en-IN') + '</td>').join('');
+    const convCells = transitions.map(t => convCell(vals, t.from, t.to)).join('');
+    return '<tr><td class="cluster-name">' + label + '</td>' + targetCells + achievedCells + convCells + '</tr>';
+  }
+
+  const stageTgtHeaders = stages.map(s => '<th>' + s.label + ' Tgt</th>').join('');
+  const stageAchHeaders = stages.map(s => '<th>' + s.label + ' Ach</th>').join('');
+  const convHeaders = transitions.map(t => '<th class="conv-head">' + t.label + ' Tgt%</th><th class="conv-head">' + t.label + ' Ach%</th>').join('');
+  const headerRow = '<tr><th class="cluster-col">Cluster</th>' + stageTgtHeaders + stageAchHeaders + convHeaders + '</tr>';
+
+  // ---- Scope total row ----
+  const totalVals = {};
+  stages.forEach(s => { totalVals[s.key] = {target: 0, achieved: 0}; });
+  clusterList.forEach(c => {
+    const v = computeStageValues(c);
+    stages.forEach(s => { totalVals[s.key].target += v[s.key].target; totalVals[s.key].achieved += v[s.key].achieved; });
+  });
+  const totalLabel = scope === 'non-expansion' ? 'TOTAL — India Non-Expansion' : 'TOTAL — India Expansion';
+  const totalCard = '<div class="total-card"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' +
+    rowHtml(totalLabel, totalVals) + '</tbody></table></div></div>';
+
+  const regionBlocks = regions.map(region => {
     const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
-    const rows = clustersInRegion.map(c => {
-      const cells = stages.map(s => {
-        const monthlyTarget = getTarget(c, month, s.key);
-        const displayTarget = curMonth ? (daysInMon > 0 ? monthlyTarget / daysInMon * completedDays : 0) : monthlyTarget;
-        const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, s.key) : getClusterMonthTotal(c, year, month, s.key);
-        const pct = displayTarget > 0 ? (achieved / displayTarget * 100) : null;
-        const pctCls = pct === null ? 'contrib-lo' : (pct >= 100 ? 'contrib-hi' : (pct >= 80 ? 'contrib-mid' : 'contrib-lo'));
-        return '<td>' + Math.round(displayTarget).toLocaleString('en-IN') + '</td><td>' + achieved.toLocaleString('en-IN') + '</td>' +
-          '<td class="conv-td"><span class="conv-cell contrib-cell ' + pctCls + '">' + (pct === null ? '—' : pct.toFixed(0) + '%') + '</span></td>';
-      }).join('');
-      return '<tr><td class="cluster-name">' + c + '</td>' + cells + '</tr>';
-    }).join('');
-
-    const stageHeaders = stages.map(s => '<th>' + s.label + ' Tgt</th><th>' + s.label + ' Ach</th><th class="conv-head">' + s.label + ' %</th>').join('');
+    const rows = clustersInRegion.map(c => rowHtml(c, computeStageValues(c))).join('');
 
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
-      '<div class="region-body"><div class="table-wrap"><table><thead><tr><th class="cluster-col">Cluster</th>' + stageHeaders + '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
   }).join('');
+
+  document.getElementById('tgtRegionContainerFunnel').innerHTML = totalCard + regionBlocks;
 }
+
 
 function weekStart(date){
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
