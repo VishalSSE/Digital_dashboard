@@ -199,6 +199,14 @@
   .total-card .table-wrap table thead th{background:var(--accent-soft);}
   .total-card td.cluster-name{background:var(--accent-soft);font-weight:800;}
   .total-card tbody td{font-weight:700;}
+  .expand-btn{
+    background:#fff;border:1px solid var(--border);border-radius:4px;width:18px;height:18px;
+    font-size:12px;line-height:1;cursor:pointer;color:var(--ink-soft);margin-right:7px;
+    display:inline-flex;align-items:center;justify-content:center;padding:0;vertical-align:middle;
+  }
+  .expand-btn:hover{background:var(--panel-alt);border-color:var(--accent);color:var(--accent);}
+  tr.chan-row td.cluster-name{padding-left:32px;font-weight:500;color:var(--ink-soft);font-size:12px;background:var(--panel-alt)!important;}
+  tr.chan-row td{background:var(--panel-alt);color:var(--ink-soft);}
 
   .key-overlay{
     position:fixed;inset:0;background:rgba(15,20,25,.6);display:none;
@@ -749,6 +757,7 @@ async function loadChannelData(){
     CHANNEL_UNMAPPED = [...unmappedCities];
     buildAggMC();
     buildAggCD();
+    buildAggChanDay();
     CHANNEL_DATA_LOADED = true;
     setStatus('note status-ok', '<b>Live data connected</b> — ' + RAW_LEADS.length.toLocaleString('en-IN') + ' unique lead(s) loaded from the Google Sheet just now.' +
       (CHANNEL_UNMAPPED.length ? '<div class="unmapped-note">⚠ ' + CHANNEL_UNMAPPED.length + ' city name(s) not found in the cluster map, excluded from cluster/region views: ' + CHANNEL_UNMAPPED.join(', ') + '</div>' : ''));
@@ -813,6 +822,48 @@ function getClusterMTDTotal(city, year, month, uptoDay, stageKey){
   let sum = 0;
   for(let d = 1; d <= uptoDay; d++) sum += getClusterDayVal(city, year, month, d, stageKey);
   return sum;
+}
+
+const CHANNELS_5 = ["Google - Search","Google - PMax","Google - Demand Gen","Meta Form","Meta Web"];
+let AGG_CHAN_DAY = null; // {city: {channel: {'year-month': {days:{d:count}, total:count}}}}
+
+function buildAggChanDay(){
+  AGG_CHAN_DAY = {};
+  RAW_LEADS.forEach(l => {
+    if(!l.city || !l.channel) return;
+    if(!AGG_CHAN_DAY[l.city]) AGG_CHAN_DAY[l.city] = {};
+    if(!AGG_CHAN_DAY[l.city][l.channel]) AGG_CHAN_DAY[l.city][l.channel] = {};
+    const mkey = l.year + '-' + l.month;
+    if(!AGG_CHAN_DAY[l.city][l.channel][mkey]) AGG_CHAN_DAY[l.city][l.channel][mkey] = {days:{}, total:0};
+    const obj = AGG_CHAN_DAY[l.city][l.channel][mkey];
+    obj.days[l.day] = (obj.days[l.day] || 0) + 1;
+    obj.total++;
+  });
+}
+function getChanDayVal(city, channel, year, month, day){
+  const mkey = year + '-' + month;
+  const obj = AGG_CHAN_DAY[city] && AGG_CHAN_DAY[city][channel] && AGG_CHAN_DAY[city][channel][mkey];
+  return (obj && obj.days[day]) ? obj.days[day] : 0;
+}
+function getChanMTDTotal(city, channel, year, month, uptoDay){
+  let sum = 0;
+  for(let d = 1; d <= uptoDay; d++) sum += getChanDayVal(city, channel, year, month, d);
+  return sum;
+}
+function getChanMonthTotal(city, channel, year, month){
+  const mkey = year + '-' + month;
+  const obj = AGG_CHAN_DAY[city] && AGG_CHAN_DAY[city][channel] && AGG_CHAN_DAY[city][channel][mkey];
+  return obj ? obj.total : 0;
+}
+
+function toggleChanRows(btn){
+  const tr = btn.closest('tr');
+  const id = tr.getAttribute('data-cluster');
+  const subRows = document.querySelectorAll('tr.chan-row[data-parent="' + CSS.escape(id) + '"]');
+  if(!subRows.length) return;
+  const isHidden = subRows[0].style.display === 'none' || subRows[0].style.display === '';
+  subRows.forEach(r => r.style.display = isHidden ? 'table-row' : 'none');
+  btn.textContent = isHidden ? '−' : '+';
 }
 
 function getAvailableMonths(){
@@ -971,13 +1022,20 @@ function initTargetsPage(){
   drawTargetsFunnel();
 }
 
-function computeTrend(c, year, month, completedDays, stageKey){
+function computeTrendGeneric(dayValFn, completedDays){
   if(completedDays < 10) return null; // need two full 5-day windows
   let last5 = 0, prev5 = 0;
-  for(let d = completedDays - 4; d <= completedDays; d++) last5 += getClusterDayVal(c, year, month, d, stageKey);
-  for(let d = completedDays - 9; d <= completedDays - 5; d++) prev5 += getClusterDayVal(c, year, month, d, stageKey);
-  const pct = prev5 > 0 ? ((last5 - prev5) / prev5 * 100) : (last5 > 0 ? 100 : null);
-  return {prev5, last5, pct};
+  for(let d = completedDays - 4; d <= completedDays; d++) last5 += dayValFn(d);
+  for(let d = completedDays - 9; d <= completedDays - 5; d++) prev5 += dayValFn(d);
+  const last5Avg = last5 / 5, prev5Avg = prev5 / 5;
+  const pct = prev5Avg > 0 ? ((last5Avg - prev5Avg) / prev5Avg * 100) : (last5Avg > 0 ? 100 : null);
+  return {prev5Avg, last5Avg, pct};
+}
+function computeTrend(c, year, month, completedDays, stageKey){
+  return computeTrendGeneric(d => getClusterDayVal(c, year, month, d, stageKey), completedDays);
+}
+function computeChanTrend(city, channel, year, month, completedDays){
+  return computeTrendGeneric(d => getChanDayVal(city, channel, year, month, d), completedDays);
 }
 
 function trendHtml(trend){
@@ -985,7 +1043,7 @@ function trendHtml(trend){
   const dir = trend.pct === null ? '' : (trend.pct >= 0 ? '▲' : '▼');
   const cls = trend.pct === null ? 'trend-flat' : (trend.pct >= 0 ? 'trend-up' : 'trend-down');
   const pctTxt = trend.pct === null ? '' : (' ' + dir + ' ' + Math.abs(trend.pct).toFixed(0) + '%');
-  return '<span class="' + cls + '">' + trend.prev5 + '→' + trend.last5 + pctTxt + '</span>';
+  return '<span class="' + cls + '">' + trend.prev5Avg.toFixed(1) + '→' + trend.last5Avg.toFixed(1) + pctTxt + '</span>';
 }
 
 function drawTargetsBQL(){
@@ -996,6 +1054,7 @@ function drawTargetsBQL(){
   const daysInMon = new Date(year, month, 0).getDate();
   const curMonth = isCurrentMonth(year, month);
   const completedDays = curMonth ? Math.max(0, new Date().getDate() - 1) : daysInMon;
+  const dayCols = curMonth ? completedDays : daysInMon;
 
   document.getElementById('tgtPillBQL').textContent = monthLabel({year, month}) +
     (curMonth ? ' · MTD (through Day ' + completedDays + ')' : ' · Full Month') +
@@ -1003,7 +1062,6 @@ function drawTargetsBQL(){
 
   const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
   const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
-  const dayCols = curMonth ? completedDays : daysInMon;
 
   function computeRow(c){
     const monthlyTarget = getTarget(c, month, 'bql');
@@ -1014,34 +1072,56 @@ function drawTargetsBQL(){
     return {c, monthlyTarget, dailyTarget, displayTarget, achieved, pct};
   }
 
-  function rowHtml(r, isTotal){
+  function dayCellsHtml(dayValFn, dailyTarget, colorize){
+    let out = '';
+    for(let d = 1; d <= dayCols; d++){
+      const val = dayValFn(d);
+      const cls = (colorize && curMonth) ? (val >= dailyTarget ? 'day-hit' : 'day-miss') : '';
+      out += '<td class="' + cls + '">' + val.toLocaleString('en-IN') + '</td>';
+    }
+    return out;
+  }
+
+  // Main row: Cluster | Target | Daily Target | Achieved | Tgt vs Ach % | Trend | D1..Dn
+  function mainRowHtml(r, isTotal, dayValFn){
     const pctCls = r.pct === null ? 'contrib-lo' : (r.pct >= 0 ? 'contrib-hi' : 'contrib-lo');
     const pctTxt = r.pct === null ? '—' : (r.pct >= 0 ? '+' : '') + r.pct.toFixed(0) + '%';
-    let dayCells = '';
-    for(let d = 1; d <= dayCols; d++){
-      const val = isTotal
-        ? clusterList.reduce((a,cn) => a + getClusterDayVal(cn, year, month, d, 'bql'), 0)
-        : getClusterDayVal(r.c, year, month, d, 'bql');
-      let cellCls = '';
-      if(curMonth && !isTotal) cellCls = val >= r.dailyTarget ? 'day-hit' : 'day-miss';
-      if(curMonth && isTotal) cellCls = val >= r.dailyTarget ? 'day-hit' : 'day-miss';
-      dayCells += '<td class="' + cellCls + '">' + val.toLocaleString('en-IN') + '</td>';
-    }
-    const trendCell = curMonth ? '<td class="conv-td">' + trendHtml(isTotal ? r.trend : computeTrend(r.c, year, month, completedDays, 'bql')) + '</td>' : '';
-    return '<tr><td class="cluster-name">' + r.c + '</td>' +
+    const trend = curMonth ? computeTrendGeneric(dayValFn, completedDays) : null;
+    const trendCell = curMonth ? '<td class="conv-td">' + trendHtml(trend) + '</td>' : '';
+    const rowId = isTotal ? 'TOTAL' : r.c;
+    const expandBtn = '<button type="button" class="expand-btn" onclick="toggleChanRows(this)">+</button>';
+    return '<tr data-cluster="' + rowId + '"><td class="cluster-name">' + expandBtn + r.c + '</td>' +
       '<td>' + Math.round(r.displayTarget).toLocaleString('en-IN') + '</td>' +
       '<td>' + Math.round(r.dailyTarget).toLocaleString('en-IN') + '</td>' +
       '<td>' + r.achieved.toLocaleString('en-IN') + '</td>' +
       '<td class="conv-td"><span class="conv-cell contrib-cell ' + pctCls + '">' + pctTxt + '</span></td>' +
-      dayCells + trendCell + '</tr>';
+      trendCell + dayCellsHtml(dayValFn, r.dailyTarget, true) + '</tr>';
+  }
+
+  // Channel sub-row: no targets, just channel name, MTD Achieved, Trend, and DOD numbers
+  function chanRowHtml(rowId, channelLabel, dayValFn){
+    let sum = 0;
+    for(let d = 1; d <= dayCols; d++) sum += dayValFn(d);
+    const trend = curMonth ? computeTrendGeneric(dayValFn, completedDays) : null;
+    const trendCell = curMonth ? '<td class="conv-td">' + trendHtml(trend) + '</td>' : '';
+    return '<tr class="chan-row" data-parent="' + rowId + '" style="display:none;"><td class="cluster-name">' + channelLabel + '</td>' +
+      '<td>—</td><td>—</td><td>' + sum.toLocaleString('en-IN') + '</td><td>—</td>' +
+      trendCell + dayCellsHtml(dayValFn, 0, false) + '</tr>';
+  }
+
+  function clusterRowsWithChannels(c){
+    const r = computeRow(c);
+    const main = mainRowHtml(r, false, d => getClusterDayVal(c, year, month, d, 'bql'));
+    const chans = CHANNELS_5.map(chan => chanRowHtml(c, chan, d => getChanDayVal(c, chan, year, month, d))).join('');
+    return main + chans;
   }
 
   let dayHeaders = '';
   for(let d = 1; d <= dayCols; d++) dayHeaders += '<th>D' + d + '</th>';
-  const trendHeader = curMonth ? '<th class="conv-head">Trend (5d vs 5d)</th>' : '';
+  const trendHeader = curMonth ? '<th class="conv-head">Trend (5d avg)</th>' : '';
   const headerRow = '<tr><th class="cluster-col">Cluster</th>' +
     '<th>' + (curMonth ? 'MTD Target' : 'Monthly Target') + '</th><th>Daily Target</th><th>' + (curMonth ? 'MTD Achieved' : 'Monthly Achieved') + '</th><th class="conv-head">Tgt vs Ach %</th>' +
-    dayHeaders + trendHeader + '</tr>';
+    trendHeader + dayHeaders + '</tr>';
 
   // ---- Scope total (sum of all clusters currently in scope) ----
   const allRows = clusterList.map(computeRow);
@@ -1053,23 +1133,16 @@ function drawTargetsBQL(){
     achieved: allRows.reduce((a,r) => a + r.achieved, 0)
   };
   totalRow.pct = totalRow.displayTarget > 0 ? ((totalRow.achieved - totalRow.displayTarget) / totalRow.displayTarget * 100) : null;
-  if(curMonth){
-    let last5 = 0, prev5 = 0;
-    if(completedDays >= 10){
-      clusterList.forEach(c => {
-        for(let d = completedDays-4; d <= completedDays; d++) last5 += getClusterDayVal(c, year, month, d, 'bql');
-        for(let d = completedDays-9; d <= completedDays-5; d++) prev5 += getClusterDayVal(c, year, month, d, 'bql');
-      });
-      totalRow.trend = {prev5, last5, pct: prev5 > 0 ? ((last5-prev5)/prev5*100) : (last5>0?100:null)};
-    } else totalRow.trend = null;
-  }
+  const totalDayValFn = d => clusterList.reduce((a,cn) => a + getClusterDayVal(cn, year, month, d, 'bql'), 0);
+  const totalMain = mainRowHtml(totalRow, true, totalDayValFn);
+  const totalChans = CHANNELS_5.map(chan => chanRowHtml('TOTAL', chan, d => clusterList.reduce((a,cn) => a + getChanDayVal(cn, chan, year, month, d), 0))).join('');
 
   const totalCard = '<div class="total-card"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' +
-    rowHtml(totalRow, true) + '</tbody></table></div></div>';
+    totalMain + totalChans + '</tbody></table></div></div>';
 
   const regionBlocks = regions.map(region => {
     const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
-    const rows = clustersInRegion.map(c => rowHtml(computeRow(c), false)).join('');
+    const rows = clustersInRegion.map(c => clusterRowsWithChannels(c)).join('');
 
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
