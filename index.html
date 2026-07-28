@@ -291,6 +291,15 @@
           <option value="expansion">India Expansion</option>
         </select>
       </div>
+      <div><label>Compare Mode</label>
+        <div class="toggle-group" id="momModeToggle">
+          <button type="button" class="toggle-btn active" data-mode="month">Month vs Month</button>
+          <button type="button" class="toggle-btn" data-mode="range">Date Range vs Date Range</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls" id="momMonthControls">
       <div><label>Month</label>
         <select id="monthSel"></select>
       </div>
@@ -298,6 +307,14 @@
         <select id="compareSel"></select>
       </div>
       <div class="pill" id="periodPill"></div>
+    </div>
+
+    <div class="controls" id="momRangeControls" style="display:none;">
+      <div><label>Period A — From</label><input type="date" id="rangeAFrom"></div>
+      <div><label>To</label><input type="date" id="rangeATo"></div>
+      <div><label>Period B — From</label><input type="date" id="rangeBFrom"></div>
+      <div><label>To</label><input type="date" id="rangeBTo"></div>
+      <div class="pill" id="periodPillRange"></div>
     </div>
 
     <div class="india-summary" id="indiaSummary"></div>
@@ -548,6 +565,37 @@ function getFilteredClusters(){
   return CLUSTERS.filter(c => c.scope === scope);
 }
 
+function pad2(n){ return n < 10 ? '0' + n : String(n); }
+function isoDate(d){ return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate()); }
+function addDaysISO(dateStr, delta){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  dt.setDate(dt.getDate() + delta);
+  return isoDate(dt);
+}
+function computeRangeSum(cluster, fromKey, toKey){
+  const sum = Object.assign({}, EMPTY_STAGE_ROW);
+  const daily = MOM_DAILY[cluster];
+  if(!daily) return sum;
+  Object.keys(daily).forEach(dateKey => {
+    if(dateKey >= fromKey && dateKey <= toKey){
+      const row = daily[dateKey];
+      Object.keys(EMPTY_STAGE_ROW).forEach(k => sum[k] += row[k]);
+    }
+  });
+  return sum;
+}
+function getMomDateRange(){
+  let min = null, max = null;
+  Object.keys(MOM_DAILY).forEach(cluster => {
+    Object.keys(MOM_DAILY[cluster]).forEach(dateKey => {
+      if(min === null || dateKey < min) min = dateKey;
+      if(max === null || dateKey > max) max = dateKey;
+    });
+  });
+  return {min, max};
+}
+
 function render(){
   const monthSel = document.getElementById('monthSel');
   const compareSel = document.getElementById('compareSel');
@@ -565,31 +613,27 @@ function render(){
   draw();
 }
 
-function draw(){
-  const monthSel = document.getElementById('monthSel');
-  const compareSel = document.getElementById('compareSel');
-  const month = monthSel.value;
-  const prevMonth = compareSel.value || null;
-  document.getElementById('periodPill').textContent = prevMonth ? (month + ' vs ' + prevMonth) : (month + ' (pick a month to compare)');
+function renderFunnelTables(curLookup, prevLookup, prevLabel, pillText, pillElId){
+  document.getElementById(pillElId).textContent = pillText;
 
   const filteredClusters = getFilteredClusters();
 
   const totals = Object.assign({}, EMPTY_STAGE_ROW);
   const prevTotals = Object.assign({}, EMPTY_STAGE_ROW);
   filteredClusters.forEach(c => {
-    const cur = (DATA[month] && DATA[month][c.name]) || EMPTY_STAGE_ROW;
+    const cur = curLookup(c.name) || EMPTY_STAGE_ROW;
     STAGES.forEach(s => totals[s.key] += cur[s.key]);
-    if(prevMonth){
-      const prev = (DATA[prevMonth] && DATA[prevMonth][c.name]) || EMPTY_STAGE_ROW;
+    if(prevLookup){
+      const prev = prevLookup(c.name) || EMPTY_STAGE_ROW;
       STAGES.forEach(s => prevTotals[s.key] += prev[s.key]);
     }
   });
 
   const summaryEl = document.getElementById('indiaSummary');
   summaryEl.innerHTML = STAGES.map(s => {
-    const pc = prevMonth ? pctChange(totals[s.key], prevTotals[s.key]) : null;
+    const pc = prevLookup ? pctChange(totals[s.key], prevTotals[s.key]) : null;
     const deltaHtml = pc === null ? '' :
-      '<div class="delta ' + (pc>=0?'up':'down') + '">' + (pc>=0?'▲':'▼') + ' ' + Math.abs(pc).toFixed(0) + '% vs ' + prevMonth + '</div>';
+      '<div class="delta ' + (pc>=0?'up':'down') + '">' + (pc>=0?'▲':'▼') + ' ' + Math.abs(pc).toFixed(0) + '% vs ' + prevLabel + '</div>';
     return '<div class="kpi"><div class="label">' + s.label + '</div><div class="value">' + totals[s.key].toLocaleString('en-IN') + '</div>' + deltaHtml + '</div>';
   }).join('');
 
@@ -597,12 +641,12 @@ function draw(){
   const container = document.getElementById('regionContainer');
   container.innerHTML = regions.map(region => {
     const clustersInRegion = filteredClusters.filter(c => c.region === region);
-    const regionTotalBql = clustersInRegion.reduce((a,c) => a + ((DATA[month] && DATA[month][c.name]) ? DATA[month][c.name].bql : 0), 0);
-    const regionTotalHoto = clustersInRegion.reduce((a,c) => a + ((DATA[month] && DATA[month][c.name]) ? DATA[month][c.name].hoto : 0), 0);
+    const regionTotalBql = clustersInRegion.reduce((a,c) => a + (curLookup(c.name) || EMPTY_STAGE_ROW).bql, 0);
+    const regionTotalHoto = clustersInRegion.reduce((a,c) => a + (curLookup(c.name) || EMPTY_STAGE_ROW).hoto, 0);
 
     const rows = clustersInRegion.map(c => {
-      const cur = (DATA[month] && DATA[month][c.name]) || EMPTY_STAGE_ROW;
-      const prev = prevMonth ? ((DATA[prevMonth] && DATA[prevMonth][c.name]) || EMPTY_STAGE_ROW) : null;
+      const cur = curLookup(c.name) || EMPTY_STAGE_ROW;
+      const prev = prevLookup ? (prevLookup(c.name) || EMPTY_STAGE_ROW) : null;
 
       const convCells = CONVERSIONS.map(cv => {
         const a = cur[cv.from], b = cur[cv.to];
@@ -624,6 +668,34 @@ function draw(){
       CONVERSIONS.map(cv => '<th class="conv-head">' + cv.label + '</th>').join('') +
       '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
   }).join('');
+}
+
+function draw(){
+  if(MOM_MODE === 'range'){ drawRangeMode(); return; }
+  const monthSel = document.getElementById('monthSel');
+  const compareSel = document.getElementById('compareSel');
+  const month = monthSel.value;
+  const prevMonth = compareSel.value || null;
+  const curLookup = name => (DATA[month] && DATA[month][name]) || EMPTY_STAGE_ROW;
+  const prevLookup = prevMonth ? (name => (DATA[prevMonth] && DATA[prevMonth][name]) || EMPTY_STAGE_ROW) : null;
+  const pillText = prevMonth ? (month + ' vs ' + prevMonth) : (month + ' (pick a month to compare)');
+  renderFunnelTables(curLookup, prevLookup, prevMonth, pillText, 'periodPill');
+}
+
+function drawRangeMode(){
+  const aFrom = document.getElementById('rangeAFrom').value;
+  const aTo = document.getElementById('rangeATo').value;
+  const bFrom = document.getElementById('rangeBFrom').value;
+  const bTo = document.getElementById('rangeBTo').value;
+  if(!aFrom || !aTo) return;
+  const curLookup = name => computeRangeSum(name, aFrom, aTo);
+  const hasB = !!(bFrom && bTo);
+  const prevLookup = hasB ? (name => computeRangeSum(name, bFrom, bTo)) : null;
+  const prevLabel = hasB ? (bFrom + ' – ' + bTo) : null;
+  const pillText = hasB
+    ? (aFrom + ' – ' + aTo + '  vs  ' + bFrom + ' – ' + bTo)
+    : (aFrom + ' – ' + aTo + ' (pick Period B to compare)');
+  renderFunnelTables(curLookup, prevLookup, prevLabel, pillText, 'periodPillRange');
 }
 
 // initial MoM Funnel load is triggered at the bottom of this script, after ACCESS_KEY etc. are declared
@@ -1608,6 +1680,8 @@ let MOM_DATA_LOADED = false;
 let MOM_LOAD_ERROR = false;
 let MOM_UNMAPPED = [];
 let MOM_PAGE_INIT = false;
+let MOM_DAILY = {}; // {cluster: {'YYYY-MM-DD': {bql,lrm,mfs,mfd,order,hoto}}}
+let MOM_MODE = 'month'; // 'month' | 'range'
 
 async function loadMomFunnelData(){
   const statusEl = document.getElementById('noteBox');
@@ -1640,9 +1714,12 @@ async function loadMomFunnelData(){
     REAL_CLUSTER_NAMES.forEach(c => knownSet[c.toLowerCase()] = c);
 
     const newData = {};
+    const newDaily = {};
     const unmapped = new Set();
+    const pad2 = n => (n < 10 ? '0' + n : String(n));
     for(let r = 1; r < rows.length; r++){
       const row = rows[r];
+      const day = parseInt(row[dayIdx], 10);
       const month = parseInt(row[monthIdx], 10);
       const year = parseInt(row[yearIdx], 10);
       if(!month || !year) continue;
@@ -1658,9 +1735,18 @@ async function loadMomFunnelData(){
       if(!newData[monthKey][cluster]) newData[monthKey][cluster] = Object.assign({}, EMPTY_STAGE_ROW);
       const bucket = newData[monthKey][cluster];
       Object.keys(MOMFUNNEL_COLUMNS).forEach(key => { bucket[key] += parseNum(row[stageIdx[key]]); });
+
+      if(day){
+        const dateKey = year + '-' + pad2(month) + '-' + pad2(day);
+        if(!newDaily[cluster]) newDaily[cluster] = {};
+        if(!newDaily[cluster][dateKey]) newDaily[cluster][dateKey] = Object.assign({}, EMPTY_STAGE_ROW);
+        const dBucket = newDaily[cluster][dateKey];
+        Object.keys(MOMFUNNEL_COLUMNS).forEach(key => { dBucket[key] += parseNum(row[stageIdx[key]]); });
+      }
     }
 
     DATA = newData;
+    MOM_DAILY = newDaily;
     MONTHS = Object.keys(DATA).sort((a,b) => monthSortValue(a) - monthSortValue(b));
     MOM_UNMAPPED = [...unmapped];
     MOM_DATA_LOADED = true;
@@ -1691,6 +1777,33 @@ function initMomPage(){
     document.getElementById('scopeSel').addEventListener('change', draw);
     document.getElementById('monthSel').addEventListener('change', render);
     document.getElementById('compareSel').addEventListener('change', draw);
+
+    document.querySelectorAll('#momModeToggle .toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#momModeToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        MOM_MODE = btn.dataset.mode;
+        document.getElementById('momMonthControls').style.display = MOM_MODE === 'month' ? 'flex' : 'none';
+        document.getElementById('momRangeControls').style.display = MOM_MODE === 'range' ? 'flex' : 'none';
+        draw();
+      });
+    });
+
+    ['rangeAFrom','rangeATo','rangeBFrom','rangeBTo'].forEach(id => {
+      document.getElementById(id).addEventListener('change', () => { if(MOM_MODE === 'range') draw(); });
+    });
+
+    // Default Period A = last 7 available days, Period B = the 7 days before that.
+    const {max} = getMomDateRange();
+    if(max){
+      const aTo = max, aFrom = addDaysISO(max, -6);
+      const bTo = addDaysISO(max, -7), bFrom = addDaysISO(max, -13);
+      document.getElementById('rangeAFrom').value = aFrom;
+      document.getElementById('rangeATo').value = aTo;
+      document.getElementById('rangeBFrom').value = bFrom;
+      document.getElementById('rangeBTo').value = bTo;
+    }
+
     MOM_PAGE_INIT = true;
   }
   render();
