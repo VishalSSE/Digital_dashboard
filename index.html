@@ -733,6 +733,10 @@ function parseCSV(text){
   return rows.filter(r => r.length > 1 || (r.length === 1 && r[0] !== ''));
 }
 
+function normalizeHeader(s){
+  return String(s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
 async function loadChannelData(){
   const statusEl = document.getElementById('channelLoadStatus');
   const statusEl2 = document.getElementById('cohortLoadStatus');
@@ -746,32 +750,50 @@ async function loadChannelData(){
     if(!rows.length) throw new Error('Sheet returned no data');
     const header = rows[0].map(h => h.trim());
     const idx = {};
-    header.forEach((h,i) => idx[h] = i);
-    const required = ['Created_Day','Created_Month','Created_Year','LSQ_City','Phone_Status','Marketing_Channel','lead_delivered_to_lrm','meeting_schedule_first_time','first_meeting_done_date','Approved_by_customer_Date'];
-    const missing = required.filter(r => !(r in idx));
-    if(missing.length) throw new Error('Sheet is missing expected column(s): ' + missing.join(', '));
+    header.forEach((h,i) => { idx[normalizeHeader(h)] = i; });
+
+    const REQUIRED_COLS = {
+      day: 'Created_Day', month: 'Created_Month', year: 'Created_Year',
+      city: 'LSQ_City', status: 'Phone_Status', channel: 'Marketing_Channel',
+      lrm: 'lead_delivered_to_lrm', ms: 'meeting_schedule_first_time',
+      md: 'first_meeting_done_date', hoto: 'Approved_by_customer_Date'
+    };
+    const colIdx = {};
+    Object.keys(REQUIRED_COLS).forEach(key => { colIdx[key] = idx[normalizeHeader(REQUIRED_COLS[key])]; });
+    const missing = Object.keys(colIdx).filter(k => colIdx[k] === undefined);
+    if(missing.length) throw new Error('Sheet is missing expected column(s): ' + missing.map(k => REQUIRED_COLS[k]).join(', '));
+
+    // Optional: Order Closure Date — new field, not required, matched flexibly.
+    let orderIdx = idx['orderclosuredate'];
+    if(orderIdx === undefined){
+      for(let i = 0; i < header.length; i++){
+        const norm = normalizeHeader(header[i]);
+        if(norm.includes('order') && norm.includes('closure')){ orderIdx = i; break; }
+      }
+    }
 
     RAW_LEADS = [];
     const unmappedCities = new Set();
     for(let r = 1; r < rows.length; r++){
       const row = rows[r];
-      const phoneStatus = (row[idx['Phone_Status']] || '').trim().toUpperCase();
+      const phoneStatus = (row[colIdx.status] || '').trim().toUpperCase();
       if(!phoneStatus.includes('UNIQUE')) continue;
-      const day = parseInt(row[idx['Created_Day']], 10);
-      const month = parseInt(row[idx['Created_Month']], 10);
-      const year = parseInt(row[idx['Created_Year']], 10);
+      const day = parseInt(row[colIdx.day], 10);
+      const month = parseInt(row[colIdx.month], 10);
+      const year = parseInt(row[colIdx.year], 10);
       if(!day || !month || !year) continue;
-      const city = (row[idx['LSQ_City']] || '').trim();
-      const channel = (row[idx['Marketing_Channel']] || '').trim();
+      const city = (row[colIdx.city] || '').trim();
+      const channel = (row[colIdx.channel] || '').trim();
       const region = CLUSTER_REGION[city] || null;
       if(!region && city) unmappedCities.add(city);
       RAW_LEADS.push({
         city, region, channel, day, month, year,
         dateObj: new Date(year, month - 1, day),
-        lrm: !!(row[idx['lead_delivered_to_lrm']] || '').trim(),
-        ms: !!(row[idx['meeting_schedule_first_time']] || '').trim(),
-        md: !!(row[idx['first_meeting_done_date']] || '').trim(),
-        hoto: !!(row[idx['Approved_by_customer_Date']] || '').trim()
+        lrm: !!(row[colIdx.lrm] || '').trim(),
+        ms: !!(row[colIdx.ms] || '').trim(),
+        md: !!(row[colIdx.md] || '').trim(),
+        order: orderIdx !== undefined ? !!(row[orderIdx] || '').trim() : false,
+        hoto: !!(row[colIdx.hoto] || '').trim()
       });
     }
     CHANNEL_UNMAPPED = [...unmappedCities];
@@ -819,13 +841,14 @@ function buildAggCD(){
     if(!l.city) return;
     if(!AGG_CD[l.city]) AGG_CD[l.city] = {};
     const mkey = l.year + '-' + l.month;
-    if(!AGG_CD[l.city][mkey]) AGG_CD[l.city][mkey] = {days:{}, total:{bql:0,lrm:0,ms:0,md:0,hoto:0}};
+    if(!AGG_CD[l.city][mkey]) AGG_CD[l.city][mkey] = {days:{}, total:{bql:0,lrm:0,ms:0,md:0,order:0,hoto:0}};
     const mObj = AGG_CD[l.city][mkey];
-    if(!mObj.days[l.day]) mObj.days[l.day] = {bql:0,lrm:0,ms:0,md:0,hoto:0};
+    if(!mObj.days[l.day]) mObj.days[l.day] = {bql:0,lrm:0,ms:0,md:0,order:0,hoto:0};
     mObj.days[l.day].bql++; mObj.total.bql++;
     if(l.lrm){ mObj.days[l.day].lrm++; mObj.total.lrm++; }
     if(l.ms){ mObj.days[l.day].ms++; mObj.total.ms++; }
     if(l.md){ mObj.days[l.day].md++; mObj.total.md++; }
+    if(l.order){ mObj.days[l.day].order++; mObj.total.order++; }
     if(l.hoto){ mObj.days[l.day].hoto++; mObj.total.hoto++; }
   });
 }
@@ -1441,7 +1464,7 @@ function drawSectionMix(){
 
 function buildFunnelSeries(leads, periodKeyFn, periods){
   const map = {};
-  periods.forEach(p => map[p.key] = {bql:0,lrm:0,ms:0,md:0,hoto:0});
+  periods.forEach(p => map[p.key] = {bql:0,lrm:0,ms:0,md:0,order:0,hoto:0});
   leads.forEach(l => {
     const k = periodKeyFn(l);
     if(!map[k]) return;
@@ -1449,6 +1472,7 @@ function buildFunnelSeries(leads, periodKeyFn, periods){
     if(l.lrm) map[k].lrm++;
     if(l.ms) map[k].ms++;
     if(l.md) map[k].md++;
+    if(l.order) map[k].order++;
     if(l.hoto) map[k].hoto++;
   });
   return periods.map(p => Object.assign({key: p.key, label: p.label}, map[p.key]));
@@ -1497,18 +1521,21 @@ function drawSectionB(){
       '<td>' + s.lrm.toLocaleString('en-IN') + '</td>' +
       '<td>' + s.ms.toLocaleString('en-IN') + '</td>' +
       '<td>' + s.md.toLocaleString('en-IN') + '</td>' +
+      '<td>' + s.order.toLocaleString('en-IN') + '</td>' +
       '<td>' + s.hoto.toLocaleString('en-IN') + '</td>' +
       '<td class="conv-td"><span class="conv-cell">' + conv(s.bql, s.lrm) + '</span></td>' +
       '<td class="conv-td"><span class="conv-cell">' + conv(s.lrm, s.ms) + '</span></td>' +
       '<td class="conv-td"><span class="conv-cell">' + conv(s.ms, s.md) + '</span></td>' +
+      '<td class="conv-td"><span class="conv-cell">' + conv(s.md, s.order) + '</span></td>' +
+      '<td class="conv-td"><span class="conv-cell">' + conv(s.order, s.hoto) + '</span></td>' +
       '<td class="conv-td"><span class="conv-cell">' + conv(s.md, s.hoto) + '</span></td>' +
       '</tr>';
   }).join('');
 
   document.getElementById('funnelTableWrapB').innerHTML =
     '<table><thead><tr><th class="cluster-col">' + (gran === 'month' ? 'Month' : (gran === 'week' ? 'Week' : 'Day')) + '</th>' +
-    '<th>BQL</th><th>Lead→LRM</th><th>First MS</th><th>First MD</th><th>HoTo</th>' +
-    '<th class="conv-head">BQL→LRM</th><th class="conv-head">LRM→MS</th><th class="conv-head">MS→MD</th><th class="conv-head">MD→HOTO</th>' +
+    '<th>BQL</th><th>Lead→LRM</th><th>First MS</th><th>First MD</th><th>Booking Done</th><th>HoTo</th>' +
+    '<th class="conv-head">BQL→LRM</th><th class="conv-head">LRM→MS</th><th class="conv-head">MS→MD</th><th class="conv-head">MD→BD</th><th class="conv-head">BD→HOTO</th><th class="conv-head">MD→HOTO</th>' +
     '</tr></thead><tbody>' + rowsHtml + '</tbody></table>';
 
   const labels = series.map(s => s.label);
@@ -1517,6 +1544,7 @@ function drawSectionB(){
     {name: 'Lead→LRM', color: '#1f6fd1', values: series.map(s => s.lrm)},
     {name: 'First MS', color: '#8a5a00', values: series.map(s => s.ms)},
     {name: 'First MD', color: '#8a3fd1', values: series.map(s => s.md)},
+    {name: 'Booking Done', color: '#d1478a', values: series.map(s => s.order)},
     {name: 'HoTo', color: '#c53d3d', values: series.map(s => s.hoto)}
   ];
   renderLineChart('chartWrapB', labels, chartSeries, '');
@@ -1591,16 +1619,22 @@ async function loadMomFunnelData(){
     if(!rows.length) throw new Error('Sheet returned no data');
     const header = rows[0].map(h => h.trim());
     const idx = {};
-    header.forEach((h,i) => { idx[h.toLowerCase()] = i; });
+    header.forEach((h,i) => { idx[normalizeHeader(h)] = i; });
 
-    const dayIdx = idx['day'], monthIdx = idx['month'], yearIdx = idx['year'], clusterIdx = idx['sse_cluster'];
-    if(dayIdx === undefined || monthIdx === undefined || yearIdx === undefined || clusterIdx === undefined){
-      throw new Error('Sheet is missing Day/Month/Year/SSE_Cluster column(s)');
+    const dayIdx = idx['day'], monthIdx = idx['month'], yearIdx = idx['year'];
+    const clusterIdx = idx['ssecluster'] !== undefined ? idx['ssecluster'] : idx['cluster'];
+    const missingCore = [];
+    if(dayIdx === undefined) missingCore.push('Day');
+    if(monthIdx === undefined) missingCore.push('Month');
+    if(yearIdx === undefined) missingCore.push('Year');
+    if(clusterIdx === undefined) missingCore.push('SSE_Cluster');
+    if(missingCore.length){
+      throw new Error('Sheet is missing column(s): ' + missingCore.join(', ') + ' (checked header: ' + header.join(', ') + ')');
     }
     const stageIdx = {};
-    Object.keys(MOMFUNNEL_COLUMNS).forEach(key => { stageIdx[key] = idx[MOMFUNNEL_COLUMNS[key].toLowerCase()]; });
+    Object.keys(MOMFUNNEL_COLUMNS).forEach(key => { stageIdx[key] = idx[normalizeHeader(MOMFUNNEL_COLUMNS[key])]; });
     const missingCols = Object.keys(stageIdx).filter(k => stageIdx[k] === undefined);
-    if(missingCols.length) throw new Error('Sheet is missing expected column(s): ' + missingCols.map(k => MOMFUNNEL_COLUMNS[k]).join(', '));
+    if(missingCols.length) throw new Error('Sheet is missing expected column(s): ' + missingCols.map(k => MOMFUNNEL_COLUMNS[k]).join(', ') + ' (checked header: ' + header.join(', ') + ')');
 
     const knownSet = {};
     REAL_CLUSTER_NAMES.forEach(c => knownSet[c.toLowerCase()] = c);
