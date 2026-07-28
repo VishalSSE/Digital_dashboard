@@ -207,6 +207,17 @@
   .expand-btn:hover{background:var(--panel-alt);border-color:var(--accent);color:var(--accent);}
   tr.chan-row td.cluster-name{padding-left:32px;font-weight:500;color:var(--ink-soft);font-size:12px;background:var(--panel-alt)!important;}
   tr.chan-row td{background:var(--panel-alt);color:var(--ink-soft);}
+  .grp-target{background:#dbe7f6!important;}
+  .grp-actual{background:#e6dcf3!important;}
+  .grp-deficit-head{background:#dbe7f6!important;}
+  .pct-pos{background:var(--up-bg)!important;color:var(--up);font-weight:700;}
+  .pct-neg{background:var(--down-bg)!important;color:var(--down);font-weight:700;}
+  .total-bottom{
+    background:#eef1f5;border:1px solid var(--border);border-radius:10px;
+    margin-top:14px;overflow:hidden;
+  }
+  .total-bottom td.cluster-name{background:#eef1f5!important;font-weight:800;}
+  .total-bottom tbody td{font-weight:700;}
 
   .key-overlay{
     position:fixed;inset:0;background:rgba(15,20,25,.6);display:none;
@@ -1168,13 +1179,7 @@ function drawTargetsFunnel(){
 
   const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
   const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
-  const stages = [{key:'bql', label:'BQL'}, {key:'lrm', label:'Lead→LRM'}, {key:'ms', label:'First MS'}, {key:'md', label:'First MD'}, {key:'hoto', label:'HoTo'}];
-  const transitions = [
-    {from:'bql', to:'lrm', label:'BQL→LRM'},
-    {from:'lrm', to:'ms', label:'LRM→MS'},
-    {from:'ms', to:'md', label:'MS→MD'},
-    {from:'md', to:'hoto', label:'MD→HOTO'}
-  ];
+  const stages = [{key:'bql', label:'BQL'}, {key:'lrm', label:'LRM'}, {key:'ms', label:'MS'}, {key:'md', label:'MD'}, {key:'hoto', label:'HOTO'}];
 
   function computeStageValues(c){
     const out = {};
@@ -1188,51 +1193,60 @@ function drawTargetsFunnel(){
         displayTarget = monthlyTarget;
       }
       const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, s.key) : getClusterMonthTotal(c, year, month, s.key);
-      out[s.key] = {target: displayTarget, achieved};
+      const pct = displayTarget > 0 ? ((achieved - displayTarget) / displayTarget * 100) : null;
+      out[s.key] = {target: displayTarget, achieved, pct};
     });
     return out;
   }
 
-  function convCell(vals, from, to){
-    const tgtPct = vals[from].target > 0 ? (vals[to].target / vals[from].target * 100) : null;
-    const achPct = vals[from].achieved > 0 ? (vals[to].achieved / vals[from].achieved * 100) : null;
-    return '<td class="conv-td">' + (tgtPct === null ? '—' : tgtPct.toFixed(0) + '%') + '</td>' +
-      '<td class="conv-td"><span class="conv-cell">' + (achPct === null ? '—' : achPct.toFixed(0) + '%') + '</span></td>';
-  }
-
-  function rowHtml(label, vals){
+  function rowHtml(label, vals, isTotal){
     const targetCells = stages.map(s => '<td>' + Math.round(vals[s.key].target).toLocaleString('en-IN') + '</td>').join('');
-    const achievedCells = stages.map(s => '<td>' + vals[s.key].achieved.toLocaleString('en-IN') + '</td>').join('');
-    const convCells = transitions.map(t => convCell(vals, t.from, t.to)).join('');
-    return '<tr><td class="cluster-name">' + label + '</td>' + targetCells + achievedCells + convCells + '</tr>';
+    const achievedCells = stages.map(s => '<td>' + Math.round(vals[s.key].achieved).toLocaleString('en-IN') + '</td>').join('');
+    const deficitCells = stages.map(s => {
+      const p = vals[s.key].pct;
+      const cls = p === null ? '' : (p >= 0 ? 'pct-pos' : 'pct-neg');
+      const txt = p === null ? '—' : (p >= 0 ? '+' : '') + p.toFixed(0) + '%';
+      return '<td class="' + cls + '">' + txt + '</td>';
+    }).join('');
+    return '<tr><td class="cluster-name">' + label + '</td>' + targetCells + achievedCells + deficitCells + '</tr>';
   }
 
-  const stageTgtHeaders = stages.map(s => '<th>' + s.label + ' Tgt</th>').join('');
-  const stageAchHeaders = stages.map(s => '<th>' + s.label + ' Ach</th>').join('');
-  const convHeaders = transitions.map(t => '<th class="conv-head">' + t.label + ' Tgt%</th><th class="conv-head">' + t.label + ' Ach%</th>').join('');
-  const headerRow = '<tr><th class="cluster-col">Cluster</th>' + stageTgtHeaders + stageAchHeaders + convHeaders + '</tr>';
+  const groupHeaderRow = '<tr><th class="cluster-col" rowspan="2">Cluster</th>' +
+    '<th colspan="5" class="grp-target">Target' + (curMonth ? ' (MTD)' : '') + '</th>' +
+    '<th colspan="5" class="grp-actual">Actual</th>' +
+    '<th colspan="5" class="grp-deficit-head">% Deficit vs MOP</th></tr>';
+  const subHeaderRow = '<tr>' +
+    stages.map(s => '<th class="grp-target">' + s.label + '</th>').join('') +
+    stages.map(s => '<th class="grp-actual">' + s.label + '</th>').join('') +
+    stages.map(s => '<th class="grp-deficit-head">' + s.label + '</th>').join('') +
+    '</tr>';
+  const headerHtml = groupHeaderRow + subHeaderRow;
 
-  // ---- Scope total row ----
+  // ---- Scope total row (rendered at the bottom, matching reference layout) ----
   const totalVals = {};
   stages.forEach(s => { totalVals[s.key] = {target: 0, achieved: 0}; });
   clusterList.forEach(c => {
     const v = computeStageValues(c);
     stages.forEach(s => { totalVals[s.key].target += v[s.key].target; totalVals[s.key].achieved += v[s.key].achieved; });
   });
-  const totalLabel = scope === 'non-expansion' ? 'TOTAL — India Non-Expansion' : 'TOTAL — India Expansion';
-  const totalCard = '<div class="total-card"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' +
-    rowHtml(totalLabel, totalVals) + '</tbody></table></div></div>';
+  stages.forEach(s => {
+    const t = totalVals[s.key];
+    t.pct = t.target > 0 ? ((t.achieved - t.target) / t.target * 100) : null;
+  });
+  const totalLabel = scope === 'non-expansion' ? 'India (Total) — Non-Expansion' : 'India (Total) — Expansion';
+  const totalBottom = '<div class="total-bottom"><div class="table-wrap"><table><thead>' + headerHtml + '</thead><tbody>' +
+    rowHtml(totalLabel, totalVals, true) + '</tbody></table></div></div>';
 
   const regionBlocks = regions.map(region => {
     const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
-    const rows = clustersInRegion.map(c => rowHtml(c, computeStageValues(c))).join('');
+    const rows = clustersInRegion.map(c => rowHtml(c, computeStageValues(c), false)).join('');
 
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
-      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerHtml + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
   }).join('');
 
-  document.getElementById('tgtRegionContainerFunnel').innerHTML = totalCard + regionBlocks;
+  document.getElementById('tgtRegionContainerFunnel').innerHTML = regionBlocks + totalBottom;
 }
 
 
