@@ -384,7 +384,7 @@
 
   <div id="page-cohort" class="page-view" style="display:none;">
     <div class="page-title">BQL Cohort Funnel</div>
-    <div class="page-sub">BQL → Lead to LRM → First MS → First MD → HoTo · cohort basis · unique leads only</div>
+    <div class="page-sub">BQL → Lead to LRM → First MS → First MD → Booking Done → HoTo · cohort basis · unique leads only</div>
 
     <div class="note" id="cohortLoadStatus">Connecting to live sheet…</div>
 
@@ -459,8 +459,8 @@
     <div id="viewTargetsFunnel" style="display:none;">
       <div class="section-card">
         <div class="section-head">
-          <div class="section-title">Funnel Target vs Achievement <span class="section-tag">All 5 Stages</span></div>
-          <div class="section-desc">Monthly (or MTD, for the running month) target vs achieved for BQL → Lead to LRM → First MS → First MD → HoTo.</div>
+          <div class="section-title">Funnel Target vs Achievement <span class="section-tag">All 6 Stages</span></div>
+          <div class="section-desc">Monthly (or MTD, for the running month) target vs achieved for BQL → Lead to LRM → First MS → First MD → Booking Done → HoTo. BD target mirrors HOTO's target (no separate BD target exists in the sheet).</div>
         </div>
         <div class="controls">
           <div><label>Month</label><select id="tgtMonthSelFunnel"></select></div>
@@ -1098,7 +1098,7 @@ function countEffectiveElapsedDays(year, month, uptoDay){
 }
 
 function mtdMultiplierForStage(stageKey, year, month, completedDays){
-  return (stageKey === 'ms' || stageKey === 'md' || stageKey === 'hoto')
+  return (stageKey === 'ms' || stageKey === 'md' || stageKey === 'order' || stageKey === 'hoto')
     ? countEffectiveElapsedDays(year, month, completedDays)
     : completedDays;
 }
@@ -1283,12 +1283,14 @@ function drawTargetsFunnel(){
 
   const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
   const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
-  const stages = [{key:'bql', label:'BQL'}, {key:'lrm', label:'LRM'}, {key:'ms', label:'MS'}, {key:'md', label:'MD'}, {key:'hoto', label:'HOTO'}];
+  const stages = [{key:'bql', label:'BQL'}, {key:'lrm', label:'LRM'}, {key:'ms', label:'MS'}, {key:'md', label:'MD'}, {key:'order', label:'BD'}, {key:'hoto', label:'HOTO'}];
 
   function computeStageValues(c){
     const out = {};
     stages.forEach(s => {
-      const monthlyTarget = getTarget(c, month, s.key);
+      // The Targets sheet has no separate Booking Done (BD) block — its target mirrors HOTO's target.
+      const targetKey = s.key === 'order' ? 'hoto' : s.key;
+      const monthlyTarget = getTarget(c, month, targetKey);
       let displayTarget;
       if(curMonth){
         const mult = mtdMultiplierForStage(s.key, year, month, completedDays);
@@ -1316,9 +1318,9 @@ function drawTargetsFunnel(){
   }
 
   const groupHeaderRow = '<tr><th class="cluster-col" rowspan="2">Cluster</th>' +
-    '<th colspan="5" class="grp-target">Target' + (curMonth ? ' (MTD)' : '') + '</th>' +
-    '<th colspan="5" class="grp-actual">Actual</th>' +
-    '<th colspan="5" class="grp-deficit-head">% Deficit vs MOP</th></tr>';
+    '<th colspan="6" class="grp-target">Target' + (curMonth ? ' (MTD)' : '') + '</th>' +
+    '<th colspan="6" class="grp-actual">Actual</th>' +
+    '<th colspan="6" class="grp-deficit-head">% Deficit vs MOP</th></tr>';
   const subHeaderRow = '<tr>' +
     stages.map(s => '<th class="grp-target">' + s.label + '</th>').join('') +
     stages.map(s => '<th class="grp-actual">' + s.label + '</th>').join('') +
