@@ -2026,11 +2026,32 @@ function askVgFindChannel(qNorm){
   return best;
 }
 
+// Finds EVERY distinct channel mentioned (for comparison queries like "google search vs meta form"),
+// not just the single best match.
+function askVgFindAllChannels(qNorm){
+  const found = [];
+  ASKVG_CHANNEL_VOCAB.forEach(c => {
+    if(c.phrases.some(p => qNorm.includes(p)) && !found.includes(c.channel)) found.push(c.channel);
+  });
+  const words = askVgTokenize(qNorm);
+  words.forEach(w => {
+    if(w.length < 2) return;
+    ASKVG_CHANNEL_VOCAB.forEach(c => {
+      if(found.includes(c.channel)) return;
+      c.words.forEach(short => {
+        if(askVgFuzzyWordMatch(w, short, 0.3) < Infinity && !found.includes(c.channel)) found.push(c.channel);
+      });
+    });
+  });
+  return found;
+}
+
 function askVgStageLabel(key){
   const s = STAGES.find(x => x.key === key);
   return s ? s.label : 'BQL';
 }
 
+let ASKVG_PENDING_CHARTS = [];
 function closeAskVg(){
   document.getElementById('askVgOverlay').style.display = 'none';
 }
@@ -2039,6 +2060,9 @@ function askVgShow(title, bodyHtml){
   document.getElementById('askVgTitle').textContent = title;
   document.getElementById('askVgBody').innerHTML = bodyHtml;
   document.getElementById('askVgOverlay').style.display = 'flex';
+  const pending = ASKVG_PENDING_CHARTS.slice();
+  ASKVG_PENDING_CHARTS = [];
+  pending.forEach(p => renderLineChart(p.id, p.labels, p.series, p.unit || '', true));
 }
 
 function askVgChannelMixTable(cluster, nMonths){
@@ -2183,6 +2207,51 @@ function askVgConvBreakdownHtml(labels, getVal){
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 
+// Renders a side-by-side comparison when the user names two or more channels
+// (e.g. "google search vs meta form funnel of chennai").
+function askVgChannelCompareHtml(cluster, channels, nMonths, isFunnel, wantsTrend, metric){
+  if(isFunnel){
+    let html = '';
+    channels.forEach(ch => {
+      const series = askVgCohortFunnelSeries(cluster, ch, nMonths);
+      html += '<h4 style="margin:18px 0 8px;color:var(--accent);font-size:14px;">' + ch + '</h4>';
+      if(!series.length){ html += '<p class="page-sub">No data.</p>'; return; }
+      if(wantsTrend){
+        const palette = ['#0f6e5c','#1f6fd1','#8a5a00','#8a3fd1','#d1478a','#c53d3d'];
+        const stageKeys = ['bql','lrm','ms','md','order','hoto'];
+        const stageLabels = ['BQL','Lead→LRM','First MS','First MD','Booking Done','HoTo'];
+        const chartSeries = stageKeys.map((k,i) => ({name: stageLabels[i], color: palette[i], values: series.map(s => s[k])}));
+        const holderId = 'askVgChartHolder_' + ch.replace(/[^a-zA-Z0-9]/g, '');
+        html += '<div id="' + holderId + '" class="chart-wrap"></div>';
+        html += askVgConvBreakdownHtml(series.map(s => s.label), (key, idx) => series[idx][key]);
+        ASKVG_PENDING_CHARTS.push({id: holderId, labels: series.map(s => s.label), series: chartSeries});
+      } else {
+        html += askVgFunnelTableHtml(series);
+      }
+    });
+    return html;
+  }
+
+  const cohortKey = ASKVG_KEY_TO_COHORT[metric];
+  const seriesPerChannel = channels.map(ch => askVgCohortFunnelSeries(cluster, ch, nMonths));
+  const labels = seriesPerChannel[0] ? seriesPerChannel[0].map(s => s.label) : [];
+  if(!labels.length) return '<p class="page-sub">No data available.</p>';
+
+  if(wantsTrend){
+    const palette = ['#0f6e5c','#c53d3d','#1f6fd1','#8a5a00','#8a3fd1','#d1478a'];
+    const chartSeries = channels.map((ch,i) => ({name: ch, color: palette[i % palette.length], values: seriesPerChannel[i].map(s => s[cohortKey])}));
+    const holderId = 'askVgChartHolder_cmp';
+    ASKVG_PENDING_CHARTS.push({id: holderId, labels, series: chartSeries});
+    return '<div id="' + holderId + '" class="chart-wrap"></div>';
+  }
+  const rows = labels.map((lb, idx) => {
+    const cells = channels.map((ch,i) => '<td>' + seriesPerChannel[i][idx][cohortKey].toLocaleString('en-IN') + '</td>').join('');
+    return '<tr><td class="cluster-name">' + lb + '</td>' + cells + '</tr>';
+  }).join('');
+  const header = '<tr><th class="cluster-col">Month</th>' + channels.map(ch => '<th>' + ch + '</th>').join('') + '</tr>';
+  return '<div class="table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>';
+}
+
 function askVgSubmit(){
   const raw = document.getElementById('askVgInput').value.trim();
   if(!raw) return;
@@ -2252,6 +2321,7 @@ function askVgSubmit(){
   }
 
   const channel = askVgFindChannel(qNorm);
+  const allChannels = askVgFindAllChannels(qNorm);
   const isChannelMixPhrase = askVgIsChannelMixPhrase(qNorm);
   const wantsTrend = askVgWantsTrend(qNorm);
   const needsChannelData = !!channel || isChannelMixPhrase;
@@ -2262,6 +2332,18 @@ function askVgSubmit(){
   }
   if(!needsChannelData && !MOM_DATA_LOADED){
     askVgShow('VG', '<p>Data is still connecting live — give it a few seconds and try again.</p>');
+    return;
+  }
+
+  // ---- Two or more channels named: side-by-side comparison ----
+  if(allChannels.length >= 2){
+    if(!CHANNEL_DATA_LOADED){
+      askVgShow('VG', '<p>Channel-level data is still connecting live — give it a few seconds and try again.</p>');
+      return;
+    }
+    const metricForCompare = isFunnel ? null : (askVgFindMetric(qNorm) || 'bql');
+    const title = 'VG — ' + cluster + ' · ' + allChannels.join(' vs ') + ' · ' + (isFunnel ? 'Full Funnel' : askVgStageLabel(metricForCompare)) + ' · last ' + nMonths + ' month(s)';
+    askVgShow(title, askVgChannelCompareHtml(cluster, allChannels, nMonths, isFunnel, wantsTrend, metricForCompare));
     return;
   }
 
