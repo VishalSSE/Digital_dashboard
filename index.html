@@ -393,7 +393,7 @@
     <div class="section-card">
       <div class="section-head">
         <div class="section-title">BQL to LRM MoM <span class="section-tag">Channel-wise · Cont% &amp; Conv%</span></div>
-        <div class="section-desc">For each cluster: BQL contribution % and BQL→LRM conversion % per channel, for two months side by side — plus an auto-generated insight explaining what drove the change (cohort basis: a lead's LRM outcome counts toward the month it was created, not when LRM delivery happened).</div>
+        <div class="section-desc">Each cluster's overall BQL→LRM % for both months, with the change and a one-line insight — click <b>+</b> on any cluster to expand the full 5-channel breakdown (Cont%, Conv%, and exact pp attribution to the overall change). Cohort basis: a lead's LRM outcome counts toward the month it was created, not when LRM delivery happened.</div>
       </div>
       <div class="controls">
         <div><label>Month A</label><select id="bqlMomMonthA"></select></div>
@@ -1618,6 +1618,7 @@ function bqlMomChannelData(monthKey, clusterName){
       chan,
       cont: totalBql > 0 ? (d.bql / totalBql * 100) : null,
       conv: d.bql > 0 ? (d.lrm / d.bql * 100) : null,
+      attribution: totalBql > 0 ? (d.lrm / totalBql * 100) : 0, // this channel's share of the overall conversion %, in pp
       bql: d.bql, lrm: d.lrm
     };
   });
@@ -1631,34 +1632,30 @@ function bqlMomOverallConv(monthKey, clusterName){
   return bql > 0 ? (lrm / bql * 100) : null;
 }
 
-function bqlMomInsight(monthAKey, monthBKey, clusterName){
-  const dataA = bqlMomChannelData(monthAKey, clusterName);
-  const dataB = bqlMomChannelData(monthBKey, clusterName);
+// Short one-line summary for the collapsed row — identifies the single biggest driver.
+function bqlMomShortInsight(monthAKey, monthBKey, clusterName){
   const convA = bqlMomOverallConv(monthAKey, clusterName);
   const convB = bqlMomOverallConv(monthBKey, clusterName);
-  if(convA === null || convB === null) return {cls:'', text:'Not enough leads in one of the two months to compare.'};
-
+  if(convA === null || convB === null) return {cls:'', text:'Not enough leads to compare.'};
+  const dataA = bqlMomChannelData(monthAKey, clusterName);
+  const dataB = bqlMomChannelData(monthBKey, clusterName);
   const diffOverall = convB - convA;
-  const validB = dataB.filter(d => d.conv !== null);
-  if(!validB.length) return {cls:'', text:'No channel had enough BQL to compute a conversion rate this month.'};
 
-  const top = validB.reduce((a,b) => (b.conv > a.conv ? b : a));
-  const topA = dataA.find(d => d.chan === top.chan);
-  const topAcont = (topA && topA.cont !== null) ? topA.cont : 0;
-  const topBcont = top.cont || 0;
-  const contDiff = topBcont - topAcont;
-  const shortName = channelShortLabel(top.chan);
-
-  if(diffOverall < -0.5 && contDiff < -0.5){
-    return {cls:'down', text: shortName + ' converts best (' + top.conv.toFixed(0) + '%) but its BQL share fell ' + topAcont.toFixed(0) + '%→' + topBcont.toFixed(0) + '% — that mix shift looks like the main driver of the ' + Math.abs(diffOverall).toFixed(0) + 'pp drop in overall BQL→LRM.'};
-  } else if(diffOverall < -0.5){
-    return {cls:'down', text: 'Overall conversion fell ' + Math.abs(diffOverall).toFixed(0) + 'pp even though ' + shortName + "'s (highest-converting) share held or grew — looks like weaker in-channel conversion, not a mix shift."};
-  } else if(diffOverall > 0.5 && contDiff > 0.5){
-    return {cls:'up', text: shortName + ' converts best and grew its share ' + topAcont.toFixed(0) + '%→' + topBcont.toFixed(0) + '% — helping lift overall BQL→LRM by ' + diffOverall.toFixed(0) + 'pp.'};
-  } else if(diffOverall > 0.5){
-    return {cls:'up', text: 'Overall conversion improved ' + diffOverall.toFixed(0) + 'pp; channel mix was not the main driver.'};
+  // Rank channels by |attribution delta| — the biggest single mover of the overall number.
+  const drivers = CHANNELS_5.map(chan => {
+    const a = dataA.find(d => d.chan === chan), b = dataB.find(d => d.chan === chan);
+    return {chan, attrDelta: b.attribution - a.attribution};
+  }).sort((x,y) => Math.abs(y.attrDelta) - Math.abs(x.attrDelta));
+  const top = drivers[0];
+  if(!top || Math.abs(top.attrDelta) < 0.05){
+    return {cls:'', text: 'Overall BQL→LRM roughly flat (' + convA.toFixed(0) + '% → ' + convB.toFixed(0) + '%).'};
   }
-  return {cls:'', text: 'Overall BQL→LRM roughly flat (' + convA.toFixed(0) + '% → ' + convB.toFixed(0) + '%).'};
+  const shortName = channelShortLabel(top.chan);
+  const dirWord = top.attrDelta >= 0 ? 'lifting' : 'dragging down';
+  return {
+    cls: diffOverall >= 0 ? 'up' : 'down',
+    text: shortName + ' is the biggest mover, ' + dirWord + ' overall BQL→LRM by ' + Math.abs(top.attrDelta).toFixed(1) + 'pp (net change ' + (diffOverall>=0?'+':'') + diffOverall.toFixed(0) + 'pp). Click + for the full per-channel breakdown.'
+  };
 }
 
 function drawBqlMom(){
@@ -1676,33 +1673,68 @@ function drawBqlMom(){
   const regions = [...new Set(clusters.map(c => c.region))];
 
   function fmtPct(v){ return v === null ? '—' : v.toFixed(0) + '%'; }
+  function fmtPP(v){ return (v >= 0 ? '+' : '') + v.toFixed(1) + 'pp'; }
+  function dirArrow(v){ return v > 0.05 ? '▲' : (v < -0.05 ? '▼' : '—'); }
+
+  function chanSubRowHtml(rowId, chan, dA, dB){
+    const contDelta = (dA.cont === null || dB.cont === null) ? null : (dB.cont - dA.cont);
+    const convDelta = (dA.conv === null || dB.conv === null) ? null : (dB.conv - dA.conv);
+    const attrDelta = dB.attribution - dA.attribution;
+    const attrCls = attrDelta > 0.05 ? 'pct-pos' : (attrDelta < -0.05 ? 'pct-neg' : '');
+    return '<tr class="chan-row" data-parent="' + rowId + '" style="display:none;"><td class="cluster-name">' + channelShortLabel(chan) + '</td>' +
+      '<td>' + fmtPct(dA.cont) + '</td>' +
+      '<td>' + fmtPct(dB.cont) + '</td>' +
+      '<td>' + (contDelta === null ? '—' : dirArrow(contDelta) + ' ' + fmtPP(contDelta)) + '</td>' +
+      '<td class="conv-td">' + fmtPct(dA.conv) + '</td>' +
+      '<td class="conv-td">' + fmtPct(dB.conv) + '</td>' +
+      '<td class="conv-td">' + (convDelta === null ? '—' : dirArrow(convDelta) + ' ' + fmtPP(convDelta)) + '</td>' +
+      '<td class="' + attrCls + '">' + dirArrow(attrDelta) + ' ' + fmtPP(attrDelta) + '</td>' +
+      '</tr>';
+  }
 
   function rowHtml(c){
     const dataA = bqlMomChannelData(monthAKey, c.name);
     const dataB = bqlMomChannelData(monthBKey, c.name);
-    const cellsA = dataA.map(d => '<td>' + fmtPct(d.cont) + '</td><td class="conv-td">' + fmtPct(d.conv) + '</td>').join('');
-    const cellsB = dataB.map(d => '<td>' + fmtPct(d.cont) + '</td><td class="conv-td">' + fmtPct(d.conv) + '</td>').join('');
-    const insight = bqlMomInsight(monthAKey, monthBKey, c.name);
-    return '<tr><td class="cluster-name">' + c.name + '</td>' + cellsA + cellsB +
+    const convA = bqlMomOverallConv(monthAKey, c.name);
+    const convB = bqlMomOverallConv(monthBKey, c.name);
+    const delta = (convA === null || convB === null) ? null : (convB - convA);
+    const deltaCls = delta === null ? '' : (delta >= 0 ? 'pct-pos' : 'pct-neg');
+    const insight = bqlMomShortInsight(monthAKey, monthBKey, c.name);
+    const expandBtn = '<button type="button" class="expand-btn" onclick="toggleChanRows(this)">+</button>';
+
+    // Same 8-column layout as the channel sub-rows below (Conv A/B/ΔConv columns are
+    // channel-specific and not applicable at cluster level, so they show "—" here).
+    const mainRow = '<tr data-cluster="' + c.name + '"><td class="cluster-name">' + expandBtn + c.name + '</td>' +
+      '<td>' + fmtPct(convA) + '</td>' +
+      '<td>' + fmtPct(convB) + '</td>' +
+      '<td class="' + deltaCls + '">' + (delta === null ? '—' : fmtPP(delta)) + '</td>' +
+      '<td class="conv-td">—</td><td class="conv-td">—</td><td class="conv-td">—</td>' +
       '<td class="insight-cell ' + insight.cls + '">' + insight.text + '</td></tr>';
+
+    const chanRows = CHANNELS_5.map(chan => {
+      const dA = dataA.find(d => d.chan === chan), dB = dataB.find(d => d.chan === chan);
+      return chanSubRowHtml(c.name, chan, dA, dB);
+    }).join('');
+
+    return mainRow + chanRows;
   }
 
-  const headerRow1 = '<tr><th class="cluster-col" rowspan="2">Cluster</th>' +
-    '<th colspan="' + (CHANNELS_5.length*2) + '" class="grp-target">' + monthALabel + '</th>' +
-    '<th colspan="' + (CHANNELS_5.length*2) + '" class="grp-actual">' + monthBLabel + '</th>' +
-    '<th rowspan="2" class="grp-deficit-head">Insight</th></tr>';
-  const headerRow2 = '<tr>' +
-    CHANNELS_5.map(ch => '<th class="grp-target">' + channelShortLabel(ch) + ' Cont%</th><th class="grp-target">' + channelShortLabel(ch) + ' Conv%</th>').join('') +
-    CHANNELS_5.map(ch => '<th class="grp-actual">' + channelShortLabel(ch) + ' Cont%</th><th class="grp-actual">' + channelShortLabel(ch) + ' Conv%</th>').join('') +
-    '</tr>';
-  const headerHtml = headerRow1 + headerRow2;
+  const headerRow =
+    '<tr><th class="cluster-col">Cluster / Channel</th>' +
+    '<th>' + monthALabel + '<br>(Overall % / Channel Cont%)</th>' +
+    '<th>' + monthBLabel + '<br>(Overall % / Channel Cont%)</th>' +
+    '<th class="conv-head">Δ (pp)</th>' +
+    '<th class="conv-head">Channel Conv% — ' + monthALabel + '</th>' +
+    '<th class="conv-head">Channel Conv% — ' + monthBLabel + '</th>' +
+    '<th class="conv-head">Δ Conv (pp)</th>' +
+    '<th>Insight / Attribution (click + for full channel breakdown)</th></tr>';
 
   document.getElementById('bqlMomContainer').innerHTML = regions.map(region => {
     const clustersInRegion = clusters.filter(c => c.region === region);
     const rows = clustersInRegion.map(c => rowHtml(c)).join('');
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
-      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerHtml + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
   }).join('');
 }
 
