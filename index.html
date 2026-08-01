@@ -2221,6 +2221,63 @@ function askVgTargetTableHtml(rows, metricLabel){
   return '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th><th>' + metricLabel + ' Target</th><th>' + metricLabel + ' Achieved</th><th class="conv-head">Tgt vs Ach %</th></tr></thead><tbody>' + trs + '</tbody></table></div>';
 }
 
+function askVgWantsWhy(qNorm){
+  const words = askVgTokenize(qNorm);
+  return askVgWordsMatchAny(words, ['why','reason','explain','analysis','analyse','analyze'], 0.3);
+}
+
+// Channel-level Cont%/Conv%/Attribution breakdown comparing two specific months —
+// currently only supported for BQL→LRM (that's the only pair with per-channel LRM data built up).
+function askVgChannelAttributionRows(cluster, monthA, monthB){
+  const keyA = monthA.year + '-' + monthA.month, keyB = monthB.year + '-' + monthB.month;
+  const dataA = (AGG_CHAN_MONTH[keyA] && AGG_CHAN_MONTH[keyA][cluster]) || {};
+  const dataB = (AGG_CHAN_MONTH[keyB] && AGG_CHAN_MONTH[keyB][cluster]) || {};
+  const totalA = Object.values(dataA).reduce((a,v) => a + v.bql, 0);
+  const totalB = Object.values(dataB).reduce((a,v) => a + v.bql, 0);
+  return CHANNELS.map(ch => {
+    const a = dataA[ch] || {bql:0, lrm:0};
+    const b = dataB[ch] || {bql:0, lrm:0};
+    const contA = totalA > 0 ? (a.bql / totalA * 100) : null;
+    const contB = totalB > 0 ? (b.bql / totalB * 100) : null;
+    const convA = a.bql > 0 ? (a.lrm / a.bql * 100) : null;
+    const convB = b.bql > 0 ? (b.lrm / b.bql * 100) : null;
+    const attrA = totalA > 0 ? (a.lrm / totalA * 100) : 0;
+    const attrB = totalB > 0 ? (b.lrm / totalB * 100) : 0;
+    return {channel: ch, contA, contB, convA, convB, attribution: attrB - attrA};
+  });
+}
+
+function askVgConvAnalysisText(rows, overallA, overallB){
+  const diff = overallB - overallA;
+  const sorted = rows.slice().sort((a,b) => Math.abs(b.attribution) - Math.abs(a.attribution));
+  const movers = sorted.filter(r => Math.abs(r.attribution) >= 0.3).slice(0, 3);
+  const headline = 'Overall BQL→LRM went ' + overallA.toFixed(0) + '% → ' + overallB.toFixed(0) + '% (' + (diff >= 0 ? '+' : '') + diff.toFixed(1) + 'pp).';
+  if(!movers.length) return headline + ' No single channel moved the needle much — the change is spread thin across channels.';
+  const parts = movers.map(m => {
+    const dir = m.attribution >= 0 ? 'lifted' : 'dragged down';
+    const contTxt = (m.contA === null || m.contB === null) ? '' : (' — its share of BQL went ' + m.contA.toFixed(0) + '%→' + m.contB.toFixed(0) + '%');
+    const convTxt = (m.convA === null || m.convB === null) ? '' : (', and its own conversion went ' + m.convA.toFixed(0) + '%→' + m.convB.toFixed(0) + '%');
+    return '<b>' + channelShortLabel(m.channel) + '</b> ' + dir + ' overall conversion by ' + Math.abs(m.attribution).toFixed(1) + 'pp' + contTxt + convTxt + '.';
+  });
+  return headline + ' ' + parts.join(' ');
+}
+
+function askVgAttributionTableHtml(rows, labelA, labelB){
+  const fmtPct = v => v === null ? '—' : v.toFixed(0) + '%';
+  const fmtPP = v => (v >= 0 ? '+' : '') + v.toFixed(1) + 'pp';
+  const trs = rows.map(r => {
+    const cls = r.attribution > 0.05 ? 'pct-pos' : (r.attribution < -0.05 ? 'pct-neg' : '');
+    return '<tr><td class="cluster-name">' + r.channel + '</td>' +
+      '<td>' + fmtPct(r.contA) + '</td><td>' + fmtPct(r.contB) + '</td>' +
+      '<td class="conv-td">' + fmtPct(r.convA) + '</td><td class="conv-td">' + fmtPct(r.convB) + '</td>' +
+      '<td class="' + cls + '">' + fmtPP(r.attribution) + '</td></tr>';
+  }).join('');
+  return '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Channel</th>' +
+    '<th>' + labelA + ' Cont%</th><th>' + labelB + ' Cont%</th>' +
+    '<th class="conv-head">' + labelA + ' Conv%</th><th class="conv-head">' + labelB + ' Conv%</th>' +
+    '<th class="conv-head">Attribution (pp)</th></tr></thead><tbody>' + trs + '</tbody></table></div>';
+}
+
 function askVgConversionRows(cluster, fromKey, toKey, periods){
   const fromCohort = ASKVG_KEY_TO_COHORT[fromKey], toCohort = ASKVG_KEY_TO_COHORT[toKey];
   const monthsObjs = periods;
@@ -2362,6 +2419,27 @@ function askVgSubmit(){
   if(pair){
     if(!CHANNEL_DATA_LOADED){
       askVgShow('VG', '<p>Live lead data is still connecting — give it a few seconds and try again.</p>');
+      return;
+    }
+    if(askVgWantsWhy(qNorm)){
+      if(!(pair.from === 'bql' && pair.to === 'lrm')){
+        askVgShow('VG', '<p>Channel-level "why" analysis is available for <b>BQL→LRM</b> only right now — more stage pairs coming soon.</p>');
+        return;
+      }
+      if(periods.length < 2){
+        askVgShow('VG', '<p>I need at least 2 months to explain a change — try widening the range, e.g. "bql to lrm last 6 months".</p>');
+        return;
+      }
+      const monthA = periods[periods.length - 2], monthB = periods[periods.length - 1];
+      const rows = askVgChannelAttributionRows(cluster, monthA, monthB);
+      const overallRowA = askVgConversionRows(cluster, 'bql', 'lrm', [monthA])[0];
+      const overallRowB = askVgConversionRows(cluster, 'bql', 'lrm', [monthB])[0];
+      const overallA = overallRowA.pct || 0, overallB = overallRowB.pct || 0;
+      const analysisText = askVgConvAnalysisText(rows, overallA, overallB);
+      const title = 'VG — ' + cluster + ' · Why did BQL→LRM change? · ' + monthLabel(monthA) + ' → ' + monthLabel(monthB);
+      const html = '<p style="margin-bottom:14px;line-height:1.55;">' + analysisText + '</p>' +
+        askVgAttributionTableHtml(rows, monthLabel(monthA), monthLabel(monthB));
+      askVgShow(title, html);
       return;
     }
     const rows = askVgConversionRows(cluster, pair.from, pair.to, periods);
