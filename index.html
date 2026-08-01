@@ -246,6 +246,26 @@
   }
   .key-modal button:hover{opacity:.92;}
   .key-modal .key-err{color:var(--down);font-size:11.5px;margin-top:8px;display:none;}
+
+  .ask-vg-bar{
+    background:#fff;border-bottom:1px solid var(--border);padding:10px 24px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .ask-vg-label{font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap;}
+  .ask-vg-bar input{
+    flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;
+  }
+  .ask-vg-bar input:focus{outline:none;border-color:var(--accent);}
+  .ask-vg-bar button{
+    padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;
+    font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;
+  }
+  .ask-vg-bar button:hover{opacity:.92;}
+  .ask-vg-modal{width:760px;max-width:92vw;max-height:82vh;overflow:auto;text-align:left;}
+  .ask-vg-modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .ask-vg-modal-head h3{font-size:16px;}
+  .ask-vg-close{background:none;border:none;font-size:17px;cursor:pointer;color:var(--ink-soft);}
+  .ask-vg-close:hover{color:var(--ink);}
 </style>
 </head>
 <body>
@@ -257,6 +277,22 @@
   </div>
   <div class="topbar-right">
     <span id="dataSourceLabel">Data: Live — Project_DB_1_0 (MoM Funnel), 35 clusters, Feb 2022–Jul 2026</span>
+  </div>
+</div>
+
+<div class="ask-vg-bar">
+  <div class="ask-vg-label">🔎 Ask anything from VG</div>
+  <input type="text" id="askVgInput" placeholder='e.g. "show me table of 3 months bql of ahmedabad" or "show 3 months trend of ahmedabad funnel"' onkeydown="if(event.key==='Enter') askVgSubmit()">
+  <button onclick="askVgSubmit()">Ask</button>
+</div>
+
+<div class="key-overlay" id="askVgOverlay">
+  <div class="key-modal ask-vg-modal">
+    <div class="ask-vg-modal-head">
+      <h3 id="askVgTitle">VG</h3>
+      <button type="button" class="ask-vg-close" onclick="document.getElementById('askVgOverlay').style.display='none'">✕</button>
+    </div>
+    <div id="askVgBody"></div>
   </div>
 </div>
 
@@ -754,6 +790,12 @@ function submitAccessKey(){
   PENDING_AFTER_KEY = [];
   LAST_ATTEMPT_CALLBACKS = cbs;
   cbs.forEach(cb => cb());
+
+  // Warm every data source immediately — no need to click into each metric page
+  // to "connect" it. The started-guards inside each loader prevent duplicate fetches.
+  if(!MOM_LOAD_STARTED) loadMomFunnelData();
+  if(!CHANNEL_LOAD_STARTED) loadChannelData();
+  if(!TARGETS_LOAD_STARTED) loadTargetsData();
 }
 
 function handleBadKey(){
@@ -789,6 +831,7 @@ let AGG_CD = null; // {clusterName: {year-month: {days:{d:{bql,lrm,ms,md,hoto}},
 let CHANNEL_UNMAPPED = [];
 let CHANNEL_DATA_LOADED = false;
 let CHANNEL_LOAD_ERROR = false;
+let CHANNEL_LOAD_STARTED = false;
 
 function parseCSV(text){
   const rows = [];
@@ -817,6 +860,8 @@ function normalizeHeader(s){
 }
 
 async function loadChannelData(){
+  if(CHANNEL_LOAD_STARTED) return;
+  CHANNEL_LOAD_STARTED = true;
   const statusEl = document.getElementById('channelLoadStatus');
   const statusEl2 = document.getElementById('cohortLoadStatus');
   const setStatus = (cls, html) => {
@@ -889,6 +934,7 @@ async function loadChannelData(){
     maybeInitTargetsPage();
   } catch(err){
     if(err.isAuthError){
+      CHANNEL_LOAD_STARTED = false;
       setStatus('note', 'Enter the access key to load live data.');
       const tgtEl = document.getElementById('targetsLoadStatus');
       if(tgtEl){ tgtEl.className = 'note'; tgtEl.innerHTML = 'Enter the access key to load live data.'; }
@@ -1032,6 +1078,7 @@ const TARGET_STAGE_BLOCKS = [
 let TARGETS = null;
 let TARGETS_LOADED = false;
 let TARGETS_LOAD_ERROR = false;
+let TARGETS_LOAD_STARTED = false;
 let TARGETS_UNMATCHED = [];
 let TARGETS_PAGE_INIT = false;
 
@@ -1044,6 +1091,8 @@ function parseNum(s){
 }
 
 async function loadTargetsData(){
+  if(TARGETS_LOAD_STARTED) return;
+  TARGETS_LOAD_STARTED = true;
   const statusEl = document.getElementById('targetsLoadStatus');
   try {
     const text = await fetchViaProxy('targets');
@@ -1077,6 +1126,7 @@ async function loadTargetsData(){
     maybeInitTargetsPage();
   } catch(err){
     if(err.isAuthError){
+      TARGETS_LOAD_STARTED = false;
       if(statusEl){ statusEl.className = 'note'; statusEl.innerHTML = 'Enter the access key to load live data.'; }
       handleBadKey();
       return;
@@ -1445,6 +1495,94 @@ function initChannelPage(){
   drawSectionMix();
 }
 
+function buildFunnelSeries(leads, periodKeyFn, periods){
+  const map = {};
+  periods.forEach(p => map[p.key] = {bql:0,lrm:0,ms:0,md:0,order:0,hoto:0});
+  leads.forEach(l => {
+    const k = periodKeyFn(l);
+    if(!map[k]) return;
+    map[k].bql++;
+    if(l.lrm) map[k].lrm++;
+    if(l.ms) map[k].ms++;
+    if(l.md) map[k].md++;
+    if(l.order) map[k].order++;
+    if(l.hoto) map[k].hoto++;
+  });
+  return periods.map(p => Object.assign({key: p.key, label: p.label}, map[p.key]));
+}
+
+function drawSectionB(){
+  const cluster = document.getElementById('clusterSelCohort').value;
+  const channel = document.getElementById('chanSelB').value;
+  const gran = document.querySelector('#granToggle .toggle-btn.active').dataset.gran;
+  let leads = channel === '__all__' ? RAW_LEADS : RAW_LEADS.filter(l => l.channel === channel);
+  if(cluster !== '__all__') leads = leads.filter(l => l.city === cluster);
+
+  let periods = [], periodKeyFn, filteredLeads = leads;
+  const months = getAvailableMonths();
+
+  if(gran === 'month'){
+    periods = months.map(m => ({key: m.year + '-' + m.month, label: monthLabel(m)}));
+    periodKeyFn = l => l.year + '-' + l.month;
+  } else if(gran === 'week'){
+    const last3 = months.slice(-3);
+    if(last3.length){
+      const minKey = last3[0].year * 100 + last3[0].month;
+      filteredLeads = leads.filter(l => (l.year * 100 + l.month) >= minKey);
+    }
+    const weekSet = new Set(filteredLeads.map(l => weekKey(l.dateObj)));
+    periods = [...weekSet].sort().map(k => ({key: k, label: weekLabel(k)}));
+    periodKeyFn = l => weekKey(l.dateObj);
+  } else {
+    const val = document.getElementById('dayMonthPicker').value;
+    if(val){
+      const [y, m] = val.split('-').map(Number);
+      filteredLeads = leads.filter(l => l.year === y && l.month === m);
+      const daysInMonth = new Date(y, m, 0).getDate();
+      periods = Array.from({length: daysInMonth}, (_, i) => ({key: String(i+1), label: String(i+1)}));
+      periodKeyFn = l => String(l.day);
+    }
+  }
+
+  const series = buildFunnelSeries(filteredLeads, periodKeyFn || (() => ''), periods);
+  document.getElementById('periodPillB').textContent = (cluster === '__all__' ? 'All India' : cluster) + ' · ' + (channel === '__all__' ? 'All Channels' : channel) + ' · ' + (gran === 'month' ? 'Month-on-Month' : (gran === 'week' ? 'Week-on-Week (last 3 months)' : 'Day-on-Day'));
+
+  const rowsHtml = series.map(s => {
+    const conv = (a,b) => a > 0 ? ((b/a)*100).toFixed(0) + '%' : '—';
+    return '<tr><td class="cluster-name">' + s.label + '</td>' +
+      '<td>' + s.bql.toLocaleString('en-IN') + '</td>' +
+      '<td>' + s.lrm.toLocaleString('en-IN') + '</td>' +
+      '<td>' + s.ms.toLocaleString('en-IN') + '</td>' +
+      '<td>' + s.md.toLocaleString('en-IN') + '</td>' +
+      '<td>' + s.order.toLocaleString('en-IN') + '</td>' +
+      '<td>' + s.hoto.toLocaleString('en-IN') + '</td>' +
+      '<td class="conv-td"><span class="conv-cell">' + conv(s.bql, s.lrm) + '</span></td>' +
+      '<td class="conv-td"><span class="conv-cell">' + conv(s.lrm, s.ms) + '</span></td>' +
+      '<td class="conv-td"><span class="conv-cell">' + conv(s.ms, s.md) + '</span></td>' +
+      '<td class="conv-td"><span class="conv-cell">' + conv(s.md, s.order) + '</span></td>' +
+      '<td class="conv-td"><span class="conv-cell">' + conv(s.order, s.hoto) + '</span></td>' +
+      '<td class="conv-td"><span class="conv-cell">' + conv(s.md, s.hoto) + '</span></td>' +
+      '</tr>';
+  }).join('');
+
+  document.getElementById('funnelTableWrapB').innerHTML =
+    '<table><thead><tr><th class="cluster-col">' + (gran === 'month' ? 'Month' : (gran === 'week' ? 'Week' : 'Day')) + '</th>' +
+    '<th>BQL</th><th>Lead→LRM</th><th>First MS</th><th>First MD</th><th>Booking Done</th><th>HoTo</th>' +
+    '<th class="conv-head">BQL→LRM</th><th class="conv-head">LRM→MS</th><th class="conv-head">MS→MD</th><th class="conv-head">MD→BD</th><th class="conv-head">BD→HOTO</th><th class="conv-head">MD→HOTO</th>' +
+    '</tr></thead><tbody>' + rowsHtml + '</tbody></table>';
+
+  const labels = series.map(s => s.label);
+  const chartSeries = [
+    {name: 'BQL', color: '#0f6e5c', values: series.map(s => s.bql)},
+    {name: 'Lead→LRM', color: '#1f6fd1', values: series.map(s => s.lrm)},
+    {name: 'First MS', color: '#8a5a00', values: series.map(s => s.ms)},
+    {name: 'First MD', color: '#8a3fd1', values: series.map(s => s.md)},
+    {name: 'Booking Done', color: '#d1478a', values: series.map(s => s.order)},
+    {name: 'HoTo', color: '#c53d3d', values: series.map(s => s.hoto)}
+  ];
+  renderLineChart('chartWrapB', labels, chartSeries, '');
+}
+
 function initCohortPage(){
   const clusterSelCohort = document.getElementById('clusterSelCohort');
   clusterSelCohort.innerHTML = '<option value="__all__">All India</option>' + REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="'+c+'">'+c+'</option>').join('');
@@ -1631,12 +1769,15 @@ const MOMFUNNEL_COLUMNS = {
 };
 let MOM_DATA_LOADED = false;
 let MOM_LOAD_ERROR = false;
+let MOM_LOAD_STARTED = false;
 let MOM_UNMAPPED = [];
 let MOM_PAGE_INIT = false;
 let MOM_DAILY = {}; // {cluster: {'YYYY-MM-DD': {bql,lrm,mfs,mfd,order,hoto}}}
 let MOM_MODE = 'month'; // 'month' | 'range'
 
 async function loadMomFunnelData(){
+  if(MOM_LOAD_STARTED) return;
+  MOM_LOAD_STARTED = true;
   const statusEl = document.getElementById('noteBox');
   statusEl.className = 'note';
   statusEl.innerHTML = 'Connecting to live sheet…';
@@ -1714,6 +1855,7 @@ async function loadMomFunnelData(){
     initMomPage();
   } catch(err){
     if(err.isAuthError){
+      MOM_LOAD_STARTED = false;
       statusEl.className = 'note';
       statusEl.innerHTML = 'Enter the access key to load live data.';
       handleBadKey();
@@ -1764,6 +1906,136 @@ function initMomPage(){
 
 // Kick off the initial live load for the default-visible MoM Funnel page.
 ensureAccessKey(() => loadMomFunnelData());
+
+// =====================================================================
+// ASK VG — smart pattern-matching query bar (not a generative AI model;
+// a rule-based interpreter over data already loaded in this page).
+// =====================================================================
+function levenshtein(a, b){
+  const m = a.length, n = b.length;
+  const dp = [];
+  for(let i = 0; i <= m; i++) dp.push(new Array(n+1).fill(0));
+  for(let i = 0; i <= m; i++) dp[i][0] = i;
+  for(let j = 0; j <= n; j++) dp[0][j] = j;
+  for(let i = 1; i <= m; i++){
+    for(let j = 1; j <= n; j++){
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j-1], dp[i-1][j], dp[i][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function askVgFindCluster(qNorm){
+  let best = null, bestDist = Infinity;
+  REAL_CLUSTER_NAMES.forEach(name => {
+    const nameNorm = name.toLowerCase();
+    if(qNorm.includes(nameNorm)){ bestDist = 0; best = name; return; }
+  });
+  if(best) return best;
+  const words = qNorm.split(/[^a-z]+/).filter(w => w.length >= 3);
+  REAL_CLUSTER_NAMES.forEach(name => {
+    const nameNorm = name.toLowerCase();
+    words.forEach(word => {
+      const dist = levenshtein(word, nameNorm);
+      const threshold = Math.max(2, Math.floor(nameNorm.length * 0.35));
+      if(dist <= threshold && dist < bestDist){ bestDist = dist; best = name; }
+    });
+  });
+  return best;
+}
+
+const ASKVG_METRIC_KEYWORDS = [
+  {key:'bql', words:['bql']},
+  {key:'lrm', words:['lrm','lead delivered','lead to lrm']},
+  {key:'mfs', words:['ms','meeting scheduled','first ms']},
+  {key:'mfd', words:['md','meeting done','first md']},
+  {key:'order', words:['order','booking done',' bd ']},
+  {key:'hoto', words:['hoto','handover']}
+];
+function askVgFindMetric(qNorm){
+  for(const m of ASKVG_METRIC_KEYWORDS){
+    if(m.words.some(w => qNorm.includes(w))) return m.key;
+  }
+  return null;
+}
+
+function askVgStageLabel(key){
+  const s = STAGES.find(x => x.key === key);
+  return s ? s.label : 'BQL';
+}
+
+function closeAskVg(){
+  document.getElementById('askVgOverlay').style.display = 'none';
+}
+
+function askVgShow(title, bodyHtml){
+  document.getElementById('askVgTitle').textContent = title;
+  document.getElementById('askVgBody').innerHTML = bodyHtml;
+  document.getElementById('askVgOverlay').style.display = 'flex';
+}
+
+function askVgSubmit(){
+  const raw = document.getElementById('askVgInput').value.trim();
+  if(!raw) return;
+  const qNorm = raw.toLowerCase();
+
+  if(!MOM_DATA_LOADED){
+    askVgShow('VG', '<p>Data is still connecting live — give it a few seconds and try again. (If a lock screen appeared, enter your access key first.)</p>');
+    return;
+  }
+
+  const cluster = askVgFindCluster(qNorm);
+  if(!cluster){
+    askVgShow('VG needs a bit more info', '<p>I couldn\'t find a cluster name in that question. Try something like:</p>' +
+      '<ul><li>"show me table of 3 months bql of ahmedabad"</li>' +
+      '<li>"show me 3 months trend of ahmedabad funnel"</li>' +
+      '<li>"show 6 months lrm trend for pune"</li></ul>');
+    return;
+  }
+
+  const isFunnel = qNorm.includes('funnel');
+  const metric = isFunnel ? null : (askVgFindMetric(qNorm) || 'bql');
+  const monthMatch = qNorm.match(/(\d+)\s*month/);
+  const nMonths = monthMatch ? Math.max(1, Math.min(24, parseInt(monthMatch[1], 10))) : 3;
+  const wantsTrend = /trend|chart|graph/.test(qNorm);
+
+  const recentMonths = MONTHS.slice(-nMonths);
+  if(!recentMonths.length){
+    askVgShow('VG', '<p>No months of data are available yet.</p>');
+    return;
+  }
+
+  const title = 'VG — ' + cluster + ' · ' + (isFunnel ? 'Full Funnel' : askVgStageLabel(metric)) + ' · last ' + recentMonths.length + ' month(s)';
+
+  if(isFunnel && wantsTrend){
+    const palette = ['#0f6e5c','#1f6fd1','#8a5a00','#8a3fd1','#d1478a','#c53d3d'];
+    const series = STAGES.map((s,i) => ({
+      name: s.label, color: palette[i % palette.length],
+      values: recentMonths.map(m => ((DATA[m] && DATA[m][cluster]) || EMPTY_STAGE_ROW)[s.key])
+    }));
+    askVgShow(title, '<div id="askVgChartHolder" class="chart-wrap"></div>');
+    renderLineChart('askVgChartHolder', recentMonths, series, '');
+  } else if(isFunnel){
+    const rows = recentMonths.map(m => {
+      const row = (DATA[m] && DATA[m][cluster]) || EMPTY_STAGE_ROW;
+      return '<tr><td class="cluster-name">' + m + '</td>' + STAGES.map(s => '<td>' + row[s.key].toLocaleString('en-IN') + '</td>').join('') + '</tr>';
+    }).join('');
+    const table = '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th>' +
+      STAGES.map(s => '<th>' + s.label + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    askVgShow(title, table);
+  } else if(wantsTrend){
+    const series = [{name: askVgStageLabel(metric), color:'#0f6e5c', values: recentMonths.map(m => ((DATA[m] && DATA[m][cluster]) || EMPTY_STAGE_ROW)[metric])}];
+    askVgShow(title, '<div id="askVgChartHolder" class="chart-wrap"></div>');
+    renderLineChart('askVgChartHolder', recentMonths, series, '');
+  } else {
+    const rows = recentMonths.map(m => {
+      const row = (DATA[m] && DATA[m][cluster]) || EMPTY_STAGE_ROW;
+      return '<tr><td class="cluster-name">' + m + '</td><td>' + row[metric].toLocaleString('en-IN') + '</td></tr>';
+    }).join('');
+    const table = '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th><th>' + askVgStageLabel(metric) + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    askVgShow(title, table);
+  }
+}
 </script>
 </body>
 </html>
