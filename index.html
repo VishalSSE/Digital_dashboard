@@ -218,6 +218,13 @@
   }
   .total-bottom td.cluster-name{background:#eef1f5!important;font-weight:800;}
   .total-bottom tbody td{font-weight:700;}
+  .insight-cell{
+    white-space:normal!important;min-width:260px;max-width:340px;
+    font-size:11.5px;color:var(--ink-soft);line-height:1.45;vertical-align:top;
+    background:#fbfbfc;
+  }
+  .insight-cell.up{color:var(--up);}
+  .insight-cell.down{color:var(--down);}
 
   .key-overlay{
     position:fixed;inset:0;background:rgba(15,20,25,.6);display:none;
@@ -333,6 +340,7 @@
         <div class="toggle-group" id="channelViewToggle">
           <button type="button" class="toggle-btn active" data-view="contrib">Contribution % by Channel</button>
           <button type="button" class="toggle-btn" data-view="mix">Channel Mix by Cluster</button>
+          <button type="button" class="toggle-btn" data-view="bqlmom">BQL MoM</button>
         </div>
       </div>
     </div>
@@ -378,6 +386,28 @@
       </div>
       <div id="chartWrapMix" class="chart-wrap"></div>
       <div id="mixGridWrap" class="table-wrap"></div>
+    </div>
+    </div>
+
+    <div id="viewBqlMom" style="display:none;">
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">BQL to LRM MoM <span class="section-tag">Channel-wise · Cont% &amp; Conv%</span></div>
+        <div class="section-desc">For each cluster: BQL contribution % and BQL→LRM conversion % per channel, for two months side by side — plus an auto-generated insight explaining what drove the change (cohort basis: a lead's LRM outcome counts toward the month it was created, not when LRM delivery happened).</div>
+      </div>
+      <div class="controls">
+        <div><label>Month A</label><select id="bqlMomMonthA"></select></div>
+        <div><label>Month B</label><select id="bqlMomMonthB"></select></div>
+        <div><label>India Scope</label>
+          <select id="bqlMomScopeSel">
+            <option value="all">All India</option>
+            <option value="non-expansion">India Non-Expansion</option>
+            <option value="expansion">India Expansion</option>
+          </select>
+        </div>
+        <div class="pill" id="periodPillBqlMom"></div>
+      </div>
+      <div id="bqlMomContainer"></div>
     </div>
     </div>
   </div>
@@ -872,6 +902,7 @@ async function loadChannelData(){
     buildAggMC();
     buildAggCD();
     buildAggChanDay();
+    buildAggChanMonth();
     CHANNEL_DATA_LOADED = true;
     setStatus('note status-ok', '<b>Live data connected</b> — ' + RAW_LEADS.length.toLocaleString('en-IN') + ' unique lead(s) loaded from the Google Sheet just now.' +
       (CHANNEL_UNMAPPED.length ? '<div class="unmapped-note">⚠ ' + CHANNEL_UNMAPPED.length + ' city name(s) not found in the cluster map, excluded from cluster/region views: ' + CHANNEL_UNMAPPED.join(', ') + '</div>' : ''));
@@ -940,6 +971,30 @@ function getClusterMTDTotal(city, year, month, uptoDay, stageKey){
 }
 
 const CHANNELS_5 = ["Google - Search","Google - PMax","Google - Demand Gen","Meta Form","Meta Web"];
+const CHANNEL_SHORT = {
+  "Google - Search": "Search",
+  "Google - PMax": "PMax",
+  "Google - Demand Gen": "DemandGen",
+  "Meta Form": "MetaForm",
+  "Meta Web": "MetaWeb"
+};
+function channelShortLabel(c){ return CHANNEL_SHORT[c] || c; }
+
+let AGG_CHAN_MONTH = null; // {'year-month': {cluster: {channel: {bql, lrm}}}}
+function buildAggChanMonth(){
+  AGG_CHAN_MONTH = {};
+  RAW_LEADS.forEach(l => {
+    if(!l.city || !l.channel) return;
+    const mkey = l.year + '-' + l.month;
+    if(!AGG_CHAN_MONTH[mkey]) AGG_CHAN_MONTH[mkey] = {};
+    if(!AGG_CHAN_MONTH[mkey][l.city]) AGG_CHAN_MONTH[mkey][l.city] = {};
+    if(!AGG_CHAN_MONTH[mkey][l.city][l.channel]) AGG_CHAN_MONTH[mkey][l.city][l.channel] = {bql:0, lrm:0};
+    const b = AGG_CHAN_MONTH[mkey][l.city][l.channel];
+    b.bql++;
+    if(l.lrm) b.lrm++;
+  });
+}
+
 let AGG_CHAN_DAY = null; // {city: {channel: {'year-month': {days:{d:count}, total:count}}}}
 
 function buildAggChanDay(){
@@ -1395,10 +1450,26 @@ function initChannelPage(){
   const clusterSelMix = document.getElementById('clusterSelMix');
   clusterSelMix.innerHTML = REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="'+c+'">'+c+'</option>').join('');
 
+  const months = getAvailableMonths();
+  const monthAOpts = months.map(m => '<option value="'+m.year+'-'+m.month+'">'+monthLabel(m)+'</option>').join('');
+  const monthASel = document.getElementById('bqlMomMonthA');
+  const monthBSel = document.getElementById('bqlMomMonthB');
+  monthASel.innerHTML = monthAOpts;
+  monthBSel.innerHTML = monthAOpts;
+  if(months.length >= 2){
+    monthASel.value = months[months.length-2].year + '-' + months[months.length-2].month;
+    monthBSel.value = months[months.length-1].year + '-' + months[months.length-1].month;
+  } else if(months.length === 1){
+    monthASel.value = monthBSel.value = months[0].year + '-' + months[0].month;
+  }
+
   chanSelA.addEventListener('change', drawSectionA);
   document.getElementById('scopeSelA').addEventListener('change', drawSectionA);
   clusterMultiA.addEventListener('change', drawSectionA);
   clusterSelMix.addEventListener('change', drawSectionMix);
+  monthASel.addEventListener('change', drawBqlMom);
+  monthBSel.addEventListener('change', drawBqlMom);
+  document.getElementById('bqlMomScopeSel').addEventListener('change', drawBqlMom);
 
   document.querySelectorAll('#channelViewToggle .toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1406,11 +1477,13 @@ function initChannelPage(){
       btn.classList.add('active');
       document.getElementById('viewContrib').style.display = btn.dataset.view === 'contrib' ? 'block' : 'none';
       document.getElementById('viewMix').style.display = btn.dataset.view === 'mix' ? 'block' : 'none';
+      document.getElementById('viewBqlMom').style.display = btn.dataset.view === 'bqlmom' ? 'block' : 'none';
     });
   });
 
   drawSectionA();
   drawSectionMix();
+  drawBqlMom();
 }
 
 function initCohortPage(){
@@ -1534,6 +1607,103 @@ function drawSectionMix(){
   });
 
   renderLineChart('chartWrapMix', months.map(monthLabel), series, '%');
+}
+
+function bqlMomChannelData(monthKey, clusterName){
+  const monthData = AGG_CHAN_MONTH[monthKey] && AGG_CHAN_MONTH[monthKey][clusterName];
+  const totalBql = monthData ? Object.values(monthData).reduce((a,v) => a + v.bql, 0) : 0;
+  return CHANNELS_5.map(chan => {
+    const d = (monthData && monthData[chan]) || {bql:0, lrm:0};
+    return {
+      chan,
+      cont: totalBql > 0 ? (d.bql / totalBql * 100) : null,
+      conv: d.bql > 0 ? (d.lrm / d.bql * 100) : null,
+      bql: d.bql, lrm: d.lrm
+    };
+  });
+}
+
+function bqlMomOverallConv(monthKey, clusterName){
+  const monthData = AGG_CHAN_MONTH[monthKey] && AGG_CHAN_MONTH[monthKey][clusterName];
+  if(!monthData) return null;
+  let bql = 0, lrm = 0;
+  Object.values(monthData).forEach(v => { bql += v.bql; lrm += v.lrm; });
+  return bql > 0 ? (lrm / bql * 100) : null;
+}
+
+function bqlMomInsight(monthAKey, monthBKey, clusterName){
+  const dataA = bqlMomChannelData(monthAKey, clusterName);
+  const dataB = bqlMomChannelData(monthBKey, clusterName);
+  const convA = bqlMomOverallConv(monthAKey, clusterName);
+  const convB = bqlMomOverallConv(monthBKey, clusterName);
+  if(convA === null || convB === null) return {cls:'', text:'Not enough leads in one of the two months to compare.'};
+
+  const diffOverall = convB - convA;
+  const validB = dataB.filter(d => d.conv !== null);
+  if(!validB.length) return {cls:'', text:'No channel had enough BQL to compute a conversion rate this month.'};
+
+  const top = validB.reduce((a,b) => (b.conv > a.conv ? b : a));
+  const topA = dataA.find(d => d.chan === top.chan);
+  const topAcont = (topA && topA.cont !== null) ? topA.cont : 0;
+  const topBcont = top.cont || 0;
+  const contDiff = topBcont - topAcont;
+  const shortName = channelShortLabel(top.chan);
+
+  if(diffOverall < -0.5 && contDiff < -0.5){
+    return {cls:'down', text: shortName + ' converts best (' + top.conv.toFixed(0) + '%) but its BQL share fell ' + topAcont.toFixed(0) + '%→' + topBcont.toFixed(0) + '% — that mix shift looks like the main driver of the ' + Math.abs(diffOverall).toFixed(0) + 'pp drop in overall BQL→LRM.'};
+  } else if(diffOverall < -0.5){
+    return {cls:'down', text: 'Overall conversion fell ' + Math.abs(diffOverall).toFixed(0) + 'pp even though ' + shortName + "'s (highest-converting) share held or grew — looks like weaker in-channel conversion, not a mix shift."};
+  } else if(diffOverall > 0.5 && contDiff > 0.5){
+    return {cls:'up', text: shortName + ' converts best and grew its share ' + topAcont.toFixed(0) + '%→' + topBcont.toFixed(0) + '% — helping lift overall BQL→LRM by ' + diffOverall.toFixed(0) + 'pp.'};
+  } else if(diffOverall > 0.5){
+    return {cls:'up', text: 'Overall conversion improved ' + diffOverall.toFixed(0) + 'pp; channel mix was not the main driver.'};
+  }
+  return {cls:'', text: 'Overall BQL→LRM roughly flat (' + convA.toFixed(0) + '% → ' + convB.toFixed(0) + '%).'};
+}
+
+function drawBqlMom(){
+  const monthASel = document.getElementById('bqlMomMonthA');
+  const monthBSel = document.getElementById('bqlMomMonthB');
+  if(!monthASel.value || !monthBSel.value) return;
+  const monthAKey = monthASel.value, monthBKey = monthBSel.value;
+  const monthALabel = monthASel.options[monthASel.selectedIndex].text;
+  const monthBLabel = monthBSel.options[monthBSel.selectedIndex].text;
+  const scope = document.getElementById('bqlMomScopeSel').value;
+
+  document.getElementById('periodPillBqlMom').textContent = monthALabel + ' vs ' + monthBLabel;
+
+  const clusters = getClusterList(scope);
+  const regions = [...new Set(clusters.map(c => c.region))];
+
+  function fmtPct(v){ return v === null ? '—' : v.toFixed(0) + '%'; }
+
+  function rowHtml(c){
+    const dataA = bqlMomChannelData(monthAKey, c.name);
+    const dataB = bqlMomChannelData(monthBKey, c.name);
+    const cellsA = dataA.map(d => '<td>' + fmtPct(d.cont) + '</td><td class="conv-td">' + fmtPct(d.conv) + '</td>').join('');
+    const cellsB = dataB.map(d => '<td>' + fmtPct(d.cont) + '</td><td class="conv-td">' + fmtPct(d.conv) + '</td>').join('');
+    const insight = bqlMomInsight(monthAKey, monthBKey, c.name);
+    return '<tr><td class="cluster-name">' + c.name + '</td>' + cellsA + cellsB +
+      '<td class="insight-cell ' + insight.cls + '">' + insight.text + '</td></tr>';
+  }
+
+  const headerRow1 = '<tr><th class="cluster-col" rowspan="2">Cluster</th>' +
+    '<th colspan="' + (CHANNELS_5.length*2) + '" class="grp-target">' + monthALabel + '</th>' +
+    '<th colspan="' + (CHANNELS_5.length*2) + '" class="grp-actual">' + monthBLabel + '</th>' +
+    '<th rowspan="2" class="grp-deficit-head">Insight</th></tr>';
+  const headerRow2 = '<tr>' +
+    CHANNELS_5.map(ch => '<th class="grp-target">' + channelShortLabel(ch) + ' Cont%</th><th class="grp-target">' + channelShortLabel(ch) + ' Conv%</th>').join('') +
+    CHANNELS_5.map(ch => '<th class="grp-actual">' + channelShortLabel(ch) + ' Cont%</th><th class="grp-actual">' + channelShortLabel(ch) + ' Conv%</th>').join('') +
+    '</tr>';
+  const headerHtml = headerRow1 + headerRow2;
+
+  document.getElementById('bqlMomContainer').innerHTML = regions.map(region => {
+    const clustersInRegion = clusters.filter(c => c.region === region);
+    const rows = clustersInRegion.map(c => rowHtml(c)).join('');
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerHtml + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
 }
 
 function buildFunnelSeries(leads, periodKeyFn, periods){
