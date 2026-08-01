@@ -311,6 +311,7 @@
     <div class="side-section">
       <div class="side-label">SolarSquare</div>
       <div class="side-item" id="nav-webland" onclick="showPage('webland')">Landing Pages by Cluster</div>
+      <div class="side-item" id="nav-adtransparency" onclick="showPage('adtransparency')">Ad Transparency (Google + Meta)</div>
     </div>
     <div class="side-section">
       <div class="side-label">Coming next</div>
@@ -490,6 +491,41 @@
       </div>
       <div id="weblandFrameWrap" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#f6f8fa;">
         <iframe id="weblandFrame" style="width:100%;height:70vh;border:none;display:block;"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-adtransparency" class="page-view" style="display:none;">
+    <div class="page-title">Ad Transparency — Google + Meta</div>
+    <div class="page-sub">Public transparency tools showing SolarSquare's currently-running ads — no login, no ad account access needed. This is not your actual campaign spend/performance data; for that, a real Google Ads / Meta Ads API integration would be needed separately.</div>
+
+    <div class="note">
+      <b>Note:</b> Google and Meta almost always block their pages from being shown inside another site (an "iframe") for security reasons — the embedded preview below may just appear blank. The <b>"Open in new tab"</b> links will work regardless, since those open the real site directly in your browser.
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Meta Ad Library <span class="section-tag">Facebook + Instagram</span></div>
+        <div class="section-desc">Every ad Meta shows as currently active for the SolarSquare Page, across Facebook and Instagram.</div>
+      </div>
+      <div class="controls">
+        <a href="https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=IN&q=solarsquare" target="_blank" rel="noopener" class="pill" style="text-decoration:none;font-weight:700;">Open Meta Ad Library ↗</a>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#f6f8fa;">
+        <iframe id="metaAdLibFrame" style="width:100%;height:60vh;border:none;display:block;"></iframe>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Google Ads Transparency Center <span class="section-tag">Search + Display + YouTube</span></div>
+        <div class="section-desc">Ads Google shows as run by SolarSquare's domain, across Search, Display, and YouTube.</div>
+      </div>
+      <div class="controls">
+        <a href="https://adstransparency.google.com/?region=IN&domain=solarsquare.in" target="_blank" rel="noopener" class="pill" style="text-decoration:none;font-weight:700;">Open Google Ads Transparency ↗</a>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#f6f8fa;">
+        <iframe id="googleAdsTransFrame" style="width:100%;height:60vh;border:none;display:block;"></iframe>
       </div>
     </div>
   </div>
@@ -785,6 +821,8 @@ function showPage(id){
   document.getElementById('nav-targets').classList.toggle('active', id === 'targets');
   document.getElementById('nav-webland').classList.toggle('active', id === 'webland');
   if(id === 'webland') initWeblandPage();
+  document.getElementById('nav-adtransparency').classList.toggle('active', id === 'adtransparency');
+  if(id === 'adtransparency') initAdTransparencyPage();
   if(id === 'mom' && !MOM_DATA_LOADED && !MOM_LOAD_ERROR) ensureAccessKey(() => loadMomFunnelData());
   if((id === 'channel' || id === 'cohort' || id === 'targets') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) ensureAccessKey(() => loadChannelData());
   if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) ensureAccessKey(() => loadTargetsData());
@@ -2692,6 +2730,14 @@ function initWeblandPage(){
   sel.addEventListener('change', weblandUpdate);
   weblandUpdate();
   WEBLAND_INIT = true;
+}
+
+let ADTRANSPARENCY_INIT = false;
+function initAdTransparencyPage(){
+  if(ADTRANSPARENCY_INIT) return;
+  document.getElementById('metaAdLibFrame').src = 'https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=IN&q=solarsquare';
+  document.getElementById('googleAdsTransFrame').src = 'https://adstransparency.google.com/?region=IN&domain=solarsquare.in';
+  ADTRANSPARENCY_INIT = true;
 }
 </script>
 </body>
