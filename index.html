@@ -1958,6 +1958,28 @@ function askVgFindMetric(qNorm){
   }
   return null;
 }
+// MoM-Funnel-space keys (mfs/mfd) <-> Cohort/RAW_LEADS-space keys (ms/md) — same stages, different key names.
+const ASKVG_KEY_TO_COHORT = {bql:'bql', lrm:'lrm', mfs:'ms', mfd:'md', order:'order', hoto:'hoto'};
+
+const ASKVG_CHANNEL_ALIASES = [
+  {channel:'Google - Search', aliases:['google search','gsearch','g search']},
+  {channel:'Google - PMax', aliases:['google pmax','performance max','pmax']},
+  {channel:'Google - Demand Gen', aliases:['google demand gen','demand gen','demandgen']},
+  {channel:'Meta Form', aliases:['meta form','metaform']},
+  {channel:'Meta Web', aliases:['meta web','metaweb']},
+  {channel:'Organic', aliases:['organic']},
+  {channel:'Direct', aliases:['direct'],},
+  {channel:'Google - Search', aliases:['search']} // generic fallback, checked last (shortest/most ambiguous)
+];
+function askVgFindChannel(qNorm){
+  let best = null, bestLen = 0;
+  ASKVG_CHANNEL_ALIASES.forEach(c => {
+    c.aliases.forEach(a => {
+      if(qNorm.includes(a) && a.length > bestLen){ best = c.channel; bestLen = a.length; }
+    });
+  });
+  return best;
+}
 
 function askVgStageLabel(key){
   const s = STAGES.find(x => x.key === key);
@@ -1974,31 +1996,121 @@ function askVgShow(title, bodyHtml){
   document.getElementById('askVgOverlay').style.display = 'flex';
 }
 
+function askVgChannelMixTable(cluster, nMonths){
+  const months = getAvailableMonths().slice(-nMonths);
+  const rows = CHANNELS.map(channel => {
+    const cells = months.map(m => {
+      const key = m.year + '-' + m.month;
+      const bucket = (AGG_MC[key] && AGG_MC[key][cluster]) || {total:0, channels:{}};
+      const chanCount = bucket.channels[channel] || 0;
+      const pct = bucket.total > 0 ? (chanCount / bucket.total * 100) : null;
+      const chanMonthData = AGG_CHAN_MONTH[key] && AGG_CHAN_MONTH[key][cluster] && AGG_CHAN_MONTH[key][cluster][channel];
+      const convPct = (chanMonthData && chanMonthData.bql > 0) ? (chanMonthData.lrm / chanMonthData.bql * 100) : null;
+      return '<td>' + (pct === null ? '—' : pct.toFixed(0) + '%') + '</td><td class="conv-td">' + (convPct === null ? '—' : convPct.toFixed(0) + '%') + '</td>';
+    }).join('');
+    return '<tr><td class="cluster-name">' + channel + '</td>' + cells + '</tr>';
+  }).join('');
+  const header = '<tr><th class="cluster-col" rowspan="2">Channel</th>' + months.map(m => '<th colspan="2">' + monthLabel(m) + '</th>').join('') + '</tr><tr>' +
+    months.map(() => '<th>Cont%</th><th class="conv-head">Conv%</th>').join('') + '</tr>';
+  return '<div class="table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function askVgCohortFunnelSeries(cluster, channel, nMonths){
+  let leads = RAW_LEADS.filter(l => l.city === cluster);
+  if(channel) leads = leads.filter(l => l.channel === channel);
+  const months = getAvailableMonths().slice(-nMonths);
+  const periods = months.map(m => ({key: m.year + '-' + m.month, label: monthLabel(m)}));
+  return buildFunnelSeries(leads, l => l.year + '-' + l.month, periods);
+}
+
+function askVgFunnelTableHtml(series){
+  const conv = (a,b) => a > 0 ? ((b/a)*100).toFixed(0) + '%' : '—';
+  const rows = series.map(s =>
+    '<tr><td class="cluster-name">' + s.label + '</td>' +
+    '<td>' + s.bql.toLocaleString('en-IN') + '</td><td>' + s.lrm.toLocaleString('en-IN') + '</td>' +
+    '<td>' + s.ms.toLocaleString('en-IN') + '</td><td>' + s.md.toLocaleString('en-IN') + '</td>' +
+    '<td>' + s.order.toLocaleString('en-IN') + '</td><td>' + s.hoto.toLocaleString('en-IN') + '</td>' +
+    '<td class="conv-td">' + conv(s.bql,s.lrm) + '</td><td class="conv-td">' + conv(s.lrm,s.ms) + '</td>' +
+    '<td class="conv-td">' + conv(s.ms,s.md) + '</td><td class="conv-td">' + conv(s.md,s.order) + '</td>' +
+    '<td class="conv-td">' + conv(s.order,s.hoto) + '</td><td class="conv-td">' + conv(s.md,s.hoto) + '</td></tr>'
+  ).join('');
+  return '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th>' +
+    '<th>BQL</th><th>Lead→LRM</th><th>First MS</th><th>First MD</th><th>Booking Done</th><th>HoTo</th>' +
+    '<th class="conv-head">BQL→LRM</th><th class="conv-head">LRM→MS</th><th class="conv-head">MS→MD</th><th class="conv-head">MD→BD</th><th class="conv-head">BD→HOTO</th><th class="conv-head">MD→HOTO</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
 function askVgSubmit(){
   const raw = document.getElementById('askVgInput').value.trim();
   if(!raw) return;
   const qNorm = raw.toLowerCase();
-
-  if(!MOM_DATA_LOADED){
-    askVgShow('VG', '<p>Data is still connecting live — give it a few seconds and try again. (If a lock screen appeared, enter your access key first.)</p>');
-    return;
-  }
 
   const cluster = askVgFindCluster(qNorm);
   if(!cluster){
     askVgShow('VG needs a bit more info', '<p>I couldn\'t find a cluster name in that question. Try something like:</p>' +
       '<ul><li>"show me table of 3 months bql of ahmedabad"</li>' +
       '<li>"show me 3 months trend of ahmedabad funnel"</li>' +
-      '<li>"show 6 months lrm trend for pune"</li></ul>');
+      '<li>"show me ahmedabad channel mix of 3 months"</li>' +
+      '<li>"channel wise trend of nagpur google search funnel"</li></ul>');
     return;
   }
 
+  const channel = askVgFindChannel(qNorm);
+  const isChannelMixPhrase = /channel mix|channel wise|by channel/.test(qNorm);
   const isFunnel = qNorm.includes('funnel');
-  const metric = isFunnel ? null : (askVgFindMetric(qNorm) || 'bql');
   const monthMatch = qNorm.match(/(\d+)\s*month/);
   const nMonths = monthMatch ? Math.max(1, Math.min(24, parseInt(monthMatch[1], 10))) : 3;
   const wantsTrend = /trend|chart|graph/.test(qNorm);
+  const needsChannelData = !!channel || isChannelMixPhrase;
 
+  if(needsChannelData && !CHANNEL_DATA_LOADED){
+    askVgShow('VG', '<p>Channel-level data is still connecting live — give it a few seconds and try again.</p>');
+    return;
+  }
+  if(!needsChannelData && !MOM_DATA_LOADED){
+    askVgShow('VG', '<p>Data is still connecting live — give it a few seconds and try again.</p>');
+    return;
+  }
+
+  // ---- Channel Mix phrase (no specific channel named): Cont%/Conv% per channel ----
+  if(isChannelMixPhrase && !channel){
+    const months = getAvailableMonths().slice(-nMonths);
+    if(!months.length){ askVgShow('VG', '<p>No months of channel data are available yet.</p>'); return; }
+    const title = 'VG — ' + cluster + ' · Channel Mix (Cont% &amp; Conv%) · last ' + months.length + ' month(s)';
+    askVgShow(title, askVgChannelMixTable(cluster, nMonths));
+    return;
+  }
+
+  // ---- A specific channel was named: channel-filtered cohort funnel/metric ----
+  if(channel){
+    const series = askVgCohortFunnelSeries(cluster, channel, nMonths);
+    if(!series.length){ askVgShow('VG', '<p>No months of data are available yet.</p>'); return; }
+    const cohortKey = ASKVG_KEY_TO_COHORT[isFunnel ? 'bql' : (askVgFindMetric(qNorm) || 'bql')];
+    const metricLabel = isFunnel ? 'Full Funnel' : askVgStageLabel(askVgFindMetric(qNorm) || 'bql');
+    const title = 'VG — ' + cluster + ' · ' + channel + ' · ' + metricLabel + ' · last ' + series.length + ' month(s)';
+
+    if(isFunnel && wantsTrend){
+      const palette = ['#0f6e5c','#1f6fd1','#8a5a00','#8a3fd1','#d1478a','#c53d3d'];
+      const stageKeys = ['bql','lrm','ms','md','order','hoto'];
+      const stageLabels = ['BQL','Lead→LRM','First MS','First MD','Booking Done','HoTo'];
+      const chartSeries = stageKeys.map((k,i) => ({name: stageLabels[i], color: palette[i], values: series.map(s => s[k])}));
+      askVgShow(title, '<div id="askVgChartHolder" class="chart-wrap"></div>');
+      renderLineChart('askVgChartHolder', series.map(s => s.label), chartSeries, '');
+    } else if(isFunnel){
+      askVgShow(title, askVgFunnelTableHtml(series));
+    } else if(wantsTrend){
+      const chartSeries = [{name: metricLabel, color:'#0f6e5c', values: series.map(s => s[cohortKey])}];
+      askVgShow(title, '<div id="askVgChartHolder" class="chart-wrap"></div>');
+      renderLineChart('askVgChartHolder', series.map(s => s.label), chartSeries, '');
+    } else {
+      const rows = series.map(s => '<tr><td class="cluster-name">' + s.label + '</td><td>' + s[cohortKey].toLocaleString('en-IN') + '</td></tr>').join('');
+      askVgShow(title, '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th><th>' + metricLabel + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>');
+    }
+    return;
+  }
+
+  // ---- No channel involved: existing MoM Funnel (cluster-month aggregate) path ----
+  const metric = isFunnel ? null : (askVgFindMetric(qNorm) || 'bql');
   const recentMonths = MONTHS.slice(-nMonths);
   if(!recentMonths.length){
     askVgShow('VG', '<p>No months of data are available yet.</p>');
