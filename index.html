@@ -1925,6 +1925,17 @@ function levenshtein(a, b){
   return dp[m][n];
 }
 
+function askVgTokenize(qNorm){
+  return qNorm.split(/[^a-z0-9]+/).filter(Boolean);
+}
+function askVgFuzzyWordMatch(word, target, maxDistRatio){
+  if(word === target) return 0;
+  if(word.length < 2 || target.length < 2) return Infinity;
+  const dist = levenshtein(word, target);
+  const threshold = Math.max(1, Math.floor(target.length * (maxDistRatio || 0.34)));
+  return dist <= threshold ? dist : Infinity;
+}
+
 function askVgFindCluster(qNorm){
   let best = null, bestDist = Infinity;
   REAL_CLUSTER_NAMES.forEach(name => {
@@ -1936,46 +1947,74 @@ function askVgFindCluster(qNorm){
   REAL_CLUSTER_NAMES.forEach(name => {
     const nameNorm = name.toLowerCase();
     words.forEach(word => {
-      const dist = levenshtein(word, nameNorm);
-      const threshold = Math.max(2, Math.floor(nameNorm.length * 0.35));
-      if(dist <= threshold && dist < bestDist){ bestDist = dist; best = name; }
+      const dist = askVgFuzzyWordMatch(word, nameNorm, 0.35);
+      if(dist < bestDist){ bestDist = dist; best = name; }
     });
   });
   return best;
 }
 
-const ASKVG_METRIC_KEYWORDS = [
-  {key:'bql', words:['bql']},
-  {key:'lrm', words:['lrm','lead delivered','lead to lrm']},
-  {key:'mfs', words:['ms','meeting scheduled','first ms']},
-  {key:'mfd', words:['md','meeting done','first md']},
-  {key:'order', words:['order','booking done',' bd ']},
-  {key:'hoto', words:['hoto','handover']}
+// Canonical funnel order — used to resolve "which direction" for any two stages mentioned together,
+// regardless of the connector word used ("to", "vs", "and", "compare", or just both named).
+const ASKVG_STAGE_ORDER = ['bql','lrm','mfs','mfd','order','hoto'];
+const ASKVG_STAGE_VOCAB = [
+  {key:'bql', phrases:['bql'], words:['bql']},
+  {key:'lrm', phrases:['lead delivered','lead to lrm','lrm'], words:['lrm']},
+  {key:'mfs', phrases:['meeting scheduled','first ms'], words:['ms']},
+  {key:'mfd', phrases:['meeting done','first md'], words:['md']},
+  {key:'order', phrases:['booking done','order booked'], words:['order','bd','booking']},
+  {key:'hoto', phrases:['handover','hoto'], words:['hoto']}
 ];
-function askVgFindMetric(qNorm){
-  for(const m of ASKVG_METRIC_KEYWORDS){
-    if(m.words.some(w => qNorm.includes(w))) return m.key;
-  }
-  return null;
-}
 // MoM-Funnel-space keys (mfs/mfd) <-> Cohort/RAW_LEADS-space keys (ms/md) — same stages, different key names.
 const ASKVG_KEY_TO_COHORT = {bql:'bql', lrm:'lrm', mfs:'ms', mfd:'md', order:'order', hoto:'hoto'};
 
-const ASKVG_CHANNEL_ALIASES = [
-  {channel:'Google - Search', aliases:['google search','gsearch','g search']},
-  {channel:'Google - PMax', aliases:['google pmax','performance max','pmax']},
-  {channel:'Google - Demand Gen', aliases:['google demand gen','demand gen','demandgen']},
-  {channel:'Meta Form', aliases:['meta form','metaform']},
-  {channel:'Meta Web', aliases:['meta web','metaweb']},
-  {channel:'Organic', aliases:['organic']},
-  {channel:'Direct', aliases:['direct'],},
-  {channel:'Google - Search', aliases:['search']} // generic fallback, checked last (shortest/most ambiguous)
+// Finds every stage mentioned anywhere in the query (phrase match first, then typo-tolerant
+// single-word fallback), deduped, returned in canonical funnel order.
+function askVgFindAllMetrics(qNorm){
+  const found = new Set();
+  ASKVG_STAGE_VOCAB.forEach(v => {
+    if(v.phrases.some(p => qNorm.includes(p))) found.add(v.key);
+  });
+  const words = askVgTokenize(qNorm);
+  words.forEach(w => {
+    if(w.length < 2) return;
+    ASKVG_STAGE_VOCAB.forEach(v => {
+      if(found.has(v.key)) return;
+      v.words.forEach(short => {
+        if(askVgFuzzyWordMatch(w, short, short.length <= 3 ? 0.0 : 0.3) === 0 || (short.length > 3 && askVgFuzzyWordMatch(w, short, 0.3) < Infinity)){
+          found.add(v.key);
+        }
+      });
+    });
+  });
+  return ASKVG_STAGE_ORDER.filter(k => found.has(k));
+}
+function askVgFindMetric(qNorm){
+  const all = askVgFindAllMetrics(qNorm);
+  return all.length ? all[0] : null;
+}
+
+const ASKVG_CHANNEL_VOCAB = [
+  {channel:'Google - Search', phrases:['google search'], words:['search','gsearch']},
+  {channel:'Google - PMax', phrases:['google pmax','performance max'], words:['pmax']},
+  {channel:'Google - Demand Gen', phrases:['google demand gen','demand gen'], words:['demandgen']},
+  {channel:'Meta Form', phrases:['meta form'], words:['metaform']},
+  {channel:'Meta Web', phrases:['meta web'], words:['metaweb']},
+  {channel:'Organic', phrases:[], words:['organic']},
+  {channel:'Direct', phrases:[], words:['direct']}
 ];
 function askVgFindChannel(qNorm){
-  let best = null, bestLen = 0;
-  ASKVG_CHANNEL_ALIASES.forEach(c => {
-    c.aliases.forEach(a => {
-      if(qNorm.includes(a) && a.length > bestLen){ best = c.channel; bestLen = a.length; }
+  for(const c of ASKVG_CHANNEL_VOCAB){
+    if(c.phrases.some(p => qNorm.includes(p))) return c.channel;
+  }
+  const words = askVgTokenize(qNorm);
+  let best = null, bestDist = Infinity;
+  words.forEach(w => {
+    ASKVG_CHANNEL_VOCAB.forEach(c => {
+      c.words.forEach(short => {
+        const dist = askVgFuzzyWordMatch(w, short, 0.3);
+        if(dist < bestDist){ bestDist = dist; best = c.channel; }
+      });
     });
   });
   return best;
@@ -2040,25 +2079,38 @@ function askVgFunnelTableHtml(series){
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 
-const ASKVG_TARGET_PHRASES = ['tar vs ach','tgt vs ach','target vs ach','vs achievement','target vs achievement','vs ach'];
+// ---- Score-based intent detection (order/phrase-independent, typo-tolerant) ----
+function askVgWordsMatchAny(words, targets, maxDistRatio){
+  return words.some(w => targets.some(t => askVgFuzzyWordMatch(w, t, maxDistRatio) < Infinity));
+}
 function askVgIsTargetVsAch(qNorm){
-  return ASKVG_TARGET_PHRASES.some(p => qNorm.includes(p));
+  const words = askVgTokenize(qNorm);
+  const hasTarget = askVgWordsMatchAny(words, ['target','tgt','tar'], 0.4);
+  const hasAch = askVgWordsMatchAny(words, ['ach','achieved','achievement','achieve'], 0.4);
+  return hasTarget && hasAch;
+}
+function askVgIsChannelMixPhrase(qNorm){
+  const words = askVgTokenize(qNorm);
+  const hasChannel = askVgWordsMatchAny(words, ['channel','channelwise'], 0.3);
+  const hasMixWord = askVgWordsMatchAny(words, ['mix','wise','split','breakup','breakdown'], 0.3);
+  return hasChannel && hasMixWord;
+}
+function askVgWantsTrend(qNorm){
+  const words = askVgTokenize(qNorm);
+  return askVgWordsMatchAny(words, ['trend','chart','graph'], 0.4);
+}
+function askVgWantsFunnel(qNorm){
+  const words = askVgTokenize(qNorm);
+  return askVgWordsMatchAny(words, ['funnel'], 0.35);
 }
 
+// If exactly two distinct stages are mentioned anywhere in the query (however phrased —
+// "to", "vs", "and", "compare", or just both named), treat it as a from→to conversion request,
+// always ordered by the canonical funnel sequence (upstream stage first).
 function askVgConversionPair(qNorm){
-  const order = ['bql','lrm','mfs','mfd','order','hoto'];
-  const wordsOf = key => ASKVG_METRIC_KEYWORDS.find(m => m.key === key).words;
-  for(const fromKey of order){
-    for(const toKey of order){
-      if(fromKey === toKey) continue;
-      for(const fw of wordsOf(fromKey)){
-        for(const tw of wordsOf(toKey)){
-          if(qNorm.includes((fw + ' to ' + tw).trim())) return {from: fromKey, to: toKey};
-        }
-      }
-    }
-  }
-  return null;
+  const metrics = askVgFindAllMetrics(qNorm);
+  if(metrics.length !== 2) return null;
+  return {from: metrics[0], to: metrics[1]};
 }
 
 function askVgTargetRows(cluster, metricKey, nMonths){
@@ -2128,7 +2180,7 @@ function askVgSubmit(){
 
   const monthMatch = qNorm.match(/(\d+)\s*month/);
   const nMonths = monthMatch ? Math.max(1, Math.min(24, parseInt(monthMatch[1], 10))) : 3;
-  const isFunnel = qNorm.includes('funnel');
+  const isFunnel = askVgWantsFunnel(qNorm);
 
   // ---- "Target vs Achievement" queries — needs Targets sheet + live leads (cohort achieved) ----
   if(askVgIsTargetVsAch(qNorm)){
@@ -2178,8 +2230,8 @@ function askVgSubmit(){
   }
 
   const channel = askVgFindChannel(qNorm);
-  const isChannelMixPhrase = /channel mix|channel wise|by channel/.test(qNorm);
-  const wantsTrend = /trend|chart|graph/.test(qNorm);
+  const isChannelMixPhrase = askVgIsChannelMixPhrase(qNorm);
+  const wantsTrend = askVgWantsTrend(qNorm);
   const needsChannelData = !!channel || isChannelMixPhrase;
 
   if(needsChannelData && !CHANNEL_DATA_LOADED){
