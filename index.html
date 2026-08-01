@@ -2040,6 +2040,75 @@ function askVgFunnelTableHtml(series){
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 
+const ASKVG_TARGET_PHRASES = ['tar vs ach','tgt vs ach','target vs ach','vs achievement','target vs achievement','vs ach'];
+function askVgIsTargetVsAch(qNorm){
+  return ASKVG_TARGET_PHRASES.some(p => qNorm.includes(p));
+}
+
+function askVgConversionPair(qNorm){
+  const order = ['bql','lrm','mfs','mfd','order','hoto'];
+  const wordsOf = key => ASKVG_METRIC_KEYWORDS.find(m => m.key === key).words;
+  for(const fromKey of order){
+    for(const toKey of order){
+      if(fromKey === toKey) continue;
+      for(const fw of wordsOf(fromKey)){
+        for(const tw of wordsOf(toKey)){
+          if(qNorm.includes((fw + ' to ' + tw).trim())) return {from: fromKey, to: toKey};
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function askVgTargetRows(cluster, metricKey, nMonths){
+  const cohortKey = ASKVG_KEY_TO_COHORT[metricKey];
+  const targetKey = cohortKey === 'order' ? 'hoto' : cohortKey; // BD target mirrors HOTO target (no separate BD block in sheet)
+  const monthsObjs = getAvailableMonths().slice(-nMonths);
+  return monthsObjs.map(m => {
+    const daysInMon = new Date(m.year, m.month, 0).getDate();
+    const curMonth = isCurrentMonth(m.year, m.month);
+    const completedDays = curMonth ? Math.max(0, new Date().getDate() - 1) : daysInMon;
+    const monthlyTarget = getTarget(cluster, m.month, targetKey);
+    let displayTarget;
+    if(curMonth){
+      const mult = mtdMultiplierForStage(cohortKey, m.year, m.month, completedDays);
+      displayTarget = daysInMon > 0 ? (monthlyTarget / daysInMon * mult) : 0;
+    } else displayTarget = monthlyTarget;
+    const achieved = curMonth ? getClusterMTDTotal(cluster, m.year, m.month, completedDays, cohortKey) : getClusterMonthTotal(cluster, m.year, m.month, cohortKey);
+    const pct = displayTarget > 0 ? ((achieved - displayTarget) / displayTarget * 100) : null;
+    return {label: monthLabel(m) + (curMonth ? ' (MTD)' : ''), target: displayTarget, achieved, pct};
+  });
+}
+
+function askVgTargetTableHtml(rows, metricLabel){
+  const trs = rows.map(r => {
+    const pctTxt = r.pct === null ? '—' : (r.pct >= 0 ? '+' : '') + r.pct.toFixed(0) + '%';
+    const cls = r.pct === null ? '' : (r.pct >= 0 ? 'pct-pos' : 'pct-neg');
+    return '<tr><td class="cluster-name">' + r.label + '</td><td>' + Math.round(r.target).toLocaleString('en-IN') + '</td><td>' + r.achieved.toLocaleString('en-IN') + '</td><td class="' + cls + '">' + pctTxt + '</td></tr>';
+  }).join('');
+  return '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th><th>' + metricLabel + ' Target</th><th>' + metricLabel + ' Achieved</th><th class="conv-head">Tgt vs Ach %</th></tr></thead><tbody>' + trs + '</tbody></table></div>';
+}
+
+function askVgConversionRows(cluster, fromKey, toKey, nMonths){
+  const fromCohort = ASKVG_KEY_TO_COHORT[fromKey], toCohort = ASKVG_KEY_TO_COHORT[toKey];
+  const monthsObjs = getAvailableMonths().slice(-nMonths);
+  return monthsObjs.map(m => {
+    const fromCount = getClusterMonthTotal(cluster, m.year, m.month, fromCohort);
+    const toCount = getClusterMonthTotal(cluster, m.year, m.month, toCohort);
+    const pct = fromCount > 0 ? (toCount / fromCount * 100) : null;
+    return {label: monthLabel(m), from: fromCount, to: toCount, pct};
+  });
+}
+
+function askVgConversionTableHtml(rows, fromLabel, toLabel){
+  const trs = rows.map(r =>
+    '<tr><td class="cluster-name">' + r.label + '</td><td>' + r.from.toLocaleString('en-IN') + '</td><td>' + r.to.toLocaleString('en-IN') + '</td>' +
+    '<td class="conv-td"><span class="conv-cell">' + (r.pct === null ? '—' : r.pct.toFixed(0) + '%') + '</span></td></tr>'
+  ).join('');
+  return '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th><th>' + fromLabel + '</th><th>' + toLabel + '</th><th class="conv-head">' + fromLabel + '→' + toLabel + ' %</th></tr></thead><tbody>' + trs + '</tbody></table></div>';
+}
+
 function askVgSubmit(){
   const raw = document.getElementById('askVgInput').value.trim();
   if(!raw) return;
@@ -2051,15 +2120,65 @@ function askVgSubmit(){
       '<ul><li>"show me table of 3 months bql of ahmedabad"</li>' +
       '<li>"show me 3 months trend of ahmedabad funnel"</li>' +
       '<li>"show me ahmedabad channel mix of 3 months"</li>' +
-      '<li>"channel wise trend of nagpur google search funnel"</li></ul>');
+      '<li>"channel wise trend of nagpur google search funnel"</li>' +
+      '<li>"3 month target vs ach of jaipur lrm"</li>' +
+      '<li>"bql to lrm mom of indore"</li></ul>');
+    return;
+  }
+
+  const monthMatch = qNorm.match(/(\d+)\s*month/);
+  const nMonths = monthMatch ? Math.max(1, Math.min(24, parseInt(monthMatch[1], 10))) : 3;
+  const isFunnel = qNorm.includes('funnel');
+
+  // ---- "Target vs Achievement" queries — needs Targets sheet + live leads (cohort achieved) ----
+  if(askVgIsTargetVsAch(qNorm)){
+    if(!TARGETS_LOADED || !CHANNEL_DATA_LOADED){
+      askVgShow('VG', '<p>Target and achievement data are still connecting live — give it a few seconds and try again.</p>');
+      return;
+    }
+    if(isFunnel){
+      const stageKeys = ['bql','lrm','mfs','mfd','order','hoto'];
+      const perStage = stageKeys.map(k => ({key:k, label: askVgStageLabel(k), rows: askVgTargetRows(cluster, k, nMonths)}));
+      const monthsObjs = getAvailableMonths().slice(-nMonths);
+      const header = '<tr><th class="cluster-col">Month</th>' + perStage.map(s => '<th colspan="3">' + s.label + '</th>').join('') + '</tr><tr><th class="cluster-col"></th>' +
+        perStage.map(() => '<th>Target</th><th>Achieved</th><th class="conv-head">%</th>').join('') + '</tr>';
+      const rows = monthsObjs.map((m, idx) => {
+        const cells = perStage.map(s => {
+          const r = s.rows[idx];
+          const pctTxt = r.pct === null ? '—' : (r.pct >= 0 ? '+' : '') + r.pct.toFixed(0) + '%';
+          const cls = r.pct === null ? '' : (r.pct >= 0 ? 'pct-pos' : 'pct-neg');
+          return '<td>' + Math.round(r.target).toLocaleString('en-IN') + '</td><td>' + r.achieved.toLocaleString('en-IN') + '</td><td class="' + cls + '">' + pctTxt + '</td>';
+        }).join('');
+        return '<tr><td class="cluster-name">' + (perStage[0].rows[idx] ? perStage[0].rows[idx].label : monthLabel(m)) + '</td>' + cells + '</tr>';
+      }).join('');
+      askVgShow('VG — ' + cluster + ' · Target vs Achievement · Full Funnel · last ' + monthsObjs.length + ' month(s)',
+        '<div class="table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>');
+      return;
+    }
+    const metric = askVgFindMetric(qNorm) || 'bql';
+    const rows = askVgTargetRows(cluster, metric, nMonths);
+    if(!rows.length){ askVgShow('VG', '<p>No months of target data are available yet.</p>'); return; }
+    askVgShow('VG — ' + cluster + ' · ' + askVgStageLabel(metric) + ' Target vs Achievement · last ' + rows.length + ' month(s)',
+      askVgTargetTableHtml(rows, askVgStageLabel(metric)));
+    return;
+  }
+
+  // ---- "X to Y" conversion queries (e.g. "bql to lrm mom") — needs live leads (cohort) ----
+  const pair = askVgConversionPair(qNorm);
+  if(pair){
+    if(!CHANNEL_DATA_LOADED){
+      askVgShow('VG', '<p>Live lead data is still connecting — give it a few seconds and try again.</p>');
+      return;
+    }
+    const rows = askVgConversionRows(cluster, pair.from, pair.to, nMonths);
+    if(!rows.length){ askVgShow('VG', '<p>No months of data are available yet.</p>'); return; }
+    askVgShow('VG — ' + cluster + ' · ' + askVgStageLabel(pair.from) + '→' + askVgStageLabel(pair.to) + ' MoM · last ' + rows.length + ' month(s)',
+      askVgConversionTableHtml(rows, askVgStageLabel(pair.from), askVgStageLabel(pair.to)));
     return;
   }
 
   const channel = askVgFindChannel(qNorm);
   const isChannelMixPhrase = /channel mix|channel wise|by channel/.test(qNorm);
-  const isFunnel = qNorm.includes('funnel');
-  const monthMatch = qNorm.match(/(\d+)\s*month/);
-  const nMonths = monthMatch ? Math.max(1, Math.min(24, parseInt(monthMatch[1], 10))) : 3;
   const wantsTrend = /trend|chart|graph/.test(qNorm);
   const needsChannelData = !!channel || isChannelMixPhrase;
 
