@@ -309,6 +309,10 @@
       <div class="side-item" id="nav-cohort" onclick="showPage('cohort')">BQL Cohort Funnel</div>
     </div>
     <div class="side-section">
+      <div class="side-label">SolarSquare</div>
+      <div class="side-item" id="nav-webland" onclick="showPage('webland')">Landing Pages by Cluster</div>
+    </div>
+    <div class="side-section">
       <div class="side-label">Coming next</div>
       <div class="side-item" style="opacity:.5;cursor:default;">Spends &amp; CAC</div>
       <div class="side-item" style="opacity:.5;cursor:default;">Day-on-Day</div>
@@ -460,6 +464,33 @@
       </div>
       <div id="chartWrapB" class="chart-wrap"></div>
       <div id="funnelTableWrapB" class="table-wrap"></div>
+    </div>
+  </div>
+
+  <div id="page-webland" class="page-view" style="display:none;">
+    <div class="page-title">Landing Pages by Cluster</div>
+    <div class="page-sub">Live view of each cluster's SolarSquare.in landing page — loaded directly in your browser, not cached in this dashboard.</div>
+
+    <div class="note" id="weblandNote">
+      <b>Note:</b> URLs are built as <code>solarsquare.in/rooftop-solar-in-&lt;city&gt;/</code> (confirmed pattern). A few clusters may still not have a dedicated page live yet. Also, some sites block being shown inside another page (an "iframe") for security reasons — if the preview below stays blank, the <b>"Open in new tab"</b> button will still work regardless, since that opens the real site directly.
+    </div>
+
+    <div class="controls">
+      <div><label>Cluster</label>
+        <select id="weblandClusterSel"></select>
+      </div>
+      <a id="weblandOpenLink" href="#" target="_blank" rel="noopener" class="pill" style="text-decoration:none;font-weight:700;">Open in new tab ↗</a>
+      <div class="pill" id="weblandUrlPill"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Live Preview <span class="section-tag">Creative &amp; Images</span></div>
+        <div class="section-desc">This embeds the actual live page for the selected cluster — whatever creative, banners, and images are currently on that page will show here (subject to the site allowing embedding).</div>
+      </div>
+      <div id="weblandFrameWrap" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#f6f8fa;">
+        <iframe id="weblandFrame" style="width:100%;height:70vh;border:none;display:block;"></iframe>
+      </div>
     </div>
   </div>
 
@@ -752,6 +783,8 @@ function showPage(id){
   document.getElementById('nav-channel').classList.toggle('active', id === 'channel');
   document.getElementById('nav-cohort').classList.toggle('active', id === 'cohort');
   document.getElementById('nav-targets').classList.toggle('active', id === 'targets');
+  document.getElementById('nav-webland').classList.toggle('active', id === 'webland');
+  if(id === 'webland') initWeblandPage();
   if(id === 'mom' && !MOM_DATA_LOADED && !MOM_LOAD_ERROR) ensureAccessKey(() => loadMomFunnelData());
   if((id === 'channel' || id === 'cohort' || id === 'targets') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) ensureAccessKey(() => loadChannelData());
   if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) ensureAccessKey(() => loadTargetsData());
@@ -2186,8 +2219,8 @@ function askVgWantsFunnel(qNorm){
 // If exactly two distinct stages are mentioned anywhere in the query (however phrased —
 // "to", "vs", "and", "compare", or just both named), treat it as a from→to conversion request,
 // always ordered by the canonical funnel sequence (upstream stage first).
-function askVgConversionPair(qNorm){
-  const metrics = askVgFindAllMetrics(qNorm);
+function askVgConversionPair(qNorm, excludeKeys){
+  const metrics = askVgFindAllMetrics(qNorm).filter(k => !(excludeKeys || []).includes(k));
   if(metrics.length !== 2) return null;
   return {from: metrics[0], to: metrics[1]};
 }
@@ -2358,10 +2391,85 @@ function askVgChannelCompareHtml(cluster, channels, periods, isFunnel, wantsTren
   return '<div class="table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>';
 }
 
+function askVgFindTopN(qNorm){
+  const m = qNorm.match(/top\s*(\d+)/);
+  if(m) return Math.max(1, Math.min(50, parseInt(m[1], 10)));
+  if(/\btop\b/.test(qNorm)) return 10;
+  return null;
+}
+// Finds the metric that should decide the ranking — the one mentioned near
+// "cities"/"clusters"/"contributor(s)" (e.g. "hoto cities", "hoto contributor cities").
+function askVgFindRankingMetric(qNorm){
+  const words = askVgTokenize(qNorm);
+  const idx = words.findIndex(w => ['cities','clusters','contributor','contributors','city'].includes(w));
+  if(idx === -1) return null;
+  const windowWords = words.slice(Math.max(0, idx - 3), idx);
+  for(const w of windowWords){
+    for(const v of ASKVG_STAGE_VOCAB){
+      if(v.words.some(sw => askVgFuzzyWordMatch(w, sw, 0.25) < Infinity)) return v.key;
+    }
+  }
+  return null;
+}
+function askVgFindRankingScope(qNorm){
+  const words = askVgTokenize(qNorm);
+  if(askVgWordsMatchAny(words, ['expansion'], 0.2) && qNorm.includes('non')) return 'non-expansion';
+  if(askVgWordsMatchAny(words, ['expansion'], 0.2)) return 'expansion';
+  return 'all';
+}
+
+function askVgHandleRanking(qNorm, topN){
+  if(!MOM_DATA_LOADED){
+    askVgShow('VG', '<p>Data is still connecting live — give it a few seconds and try again.</p>');
+    return;
+  }
+  const rankMetric = askVgFindRankingMetric(qNorm) || askVgFindMetric(qNorm) || 'bql';
+  const rankMomPeriods = askVgGetMomPeriods(qNorm, 1);
+  if(!rankMomPeriods.length){ askVgShow('VG', '<p>No months of data are available yet.</p>'); return; }
+
+  const scope = askVgFindRankingScope(qNorm);
+  const clusterPool = scope === 'non-expansion' ? NON_EXPANSION : (scope === 'expansion' ? EXPANSION : REAL_CLUSTER_NAMES);
+  const rankLabel = askVgStageLabel(rankMetric);
+  const periodLabel = rankMomPeriods.length > 1 ? (rankMomPeriods[0] + '–' + rankMomPeriods[rankMomPeriods.length - 1]) : rankMomPeriods[0];
+
+  const ranked = clusterPool.map(name => {
+    const total = rankMomPeriods.reduce((a, m) => a + ((DATA[m] && DATA[m][name]) || EMPTY_STAGE_ROW)[rankMetric], 0);
+    return {name, region: CLUSTER_REGION[name] || '—', total};
+  }).sort((a,b) => b.total - a.total).slice(0, topN);
+
+  // If a stage-to-stage pair is ALSO named (e.g. "bql to lrm trend ... for top 10 hoto cities"),
+  // show that conversion trend for each of the top-ranked clusters instead of just the ranking value.
+  const pair = askVgConversionPair(qNorm, [rankMetric]);
+  if(pair && CHANNEL_DATA_LOADED){
+    const cohortPeriods = askVgGetPeriods(qNorm, 3);
+    const header = '<tr><th class="cluster-col">Rank</th><th>Cluster</th><th>' + rankLabel + ' (' + periodLabel + ')</th>' +
+      cohortPeriods.map(p => '<th class="conv-head">' + monthLabel(p) + ' ' + askVgStageLabel(pair.from) + '→' + askVgStageLabel(pair.to) + '%</th>').join('') + '</tr>';
+    const rows = ranked.map((r, i) => {
+      const convRows = askVgConversionRows(r.name, pair.from, pair.to, cohortPeriods);
+      const cells = convRows.map(cr => '<td class="conv-td">' + (cr.pct === null ? '—' : cr.pct.toFixed(0) + '%') + '</td>').join('');
+      return '<tr><td class="cluster-name">' + (i+1) + '</td><td class="cluster-name">' + r.name + '</td><td>' + r.total.toLocaleString('en-IN') + '</td>' + cells + '</tr>';
+    }).join('');
+    const title = 'VG — Top ' + ranked.length + ' by ' + rankLabel + ' · ' + askVgStageLabel(pair.from) + '→' + askVgStageLabel(pair.to) + ' trend';
+    askVgShow(title, '<div class="table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>');
+    return;
+  }
+
+  const header = '<tr><th class="cluster-col">Rank</th><th>Cluster</th><th>Region</th><th>' + rankLabel + ' (' + periodLabel + ')</th></tr>';
+  const rows = ranked.map((r, i) => '<tr><td class="cluster-name">' + (i+1) + '</td><td class="cluster-name">' + r.name + '</td><td>' + r.region + '</td><td>' + r.total.toLocaleString('en-IN') + '</td></tr>').join('');
+  const title = 'VG — Top ' + ranked.length + ' clusters by ' + rankLabel + ' · ' + periodLabel;
+  askVgShow(title, '<div class="table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>');
+}
+
 function askVgSubmit(){
   const raw = document.getElementById('askVgInput').value.trim();
   if(!raw) return;
   const qNorm = raw.toLowerCase();
+
+  const topN = askVgFindTopN(qNorm);
+  if(topN !== null){
+    askVgHandleRanking(qNorm, topN);
+    return;
+  }
 
   const cluster = askVgFindCluster(qNorm);
   if(!cluster){
@@ -2371,7 +2479,8 @@ function askVgSubmit(){
       '<li>"show me ahmedabad channel mix of 3 months"</li>' +
       '<li>"channel wise trend of nagpur google search funnel"</li>' +
       '<li>"3 month target vs ach of jaipur lrm"</li>' +
-      '<li>"bql to lrm mom of indore"</li></ul>');
+      '<li>"bql to lrm mom of indore"</li>' +
+      '<li>"which are the top 10 hoto contributor cities"</li></ul>');
     return;
   }
 
@@ -2557,6 +2666,32 @@ function askVgSubmit(){
     const table = '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th><th>' + askVgStageLabel(metric) + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
     askVgShow(title, table);
   }
+}
+
+// =====================================================================
+// SolarSquare Web — Landing Pages by Cluster
+// (No live-sheet dependency: just constructs solarsquare.in/<city> URLs
+// from the existing cluster list and loads them client-side.)
+// =====================================================================
+function weblandUrlFor(cluster){
+  return 'https://solarsquare.in/rooftop-solar-in-' + cluster.toLowerCase().replace(/\s+/g, '-') + '/';
+}
+function weblandUpdate(){
+  const sel = document.getElementById('weblandClusterSel');
+  const cluster = sel.value;
+  const url = weblandUrlFor(cluster);
+  document.getElementById('weblandOpenLink').href = url;
+  document.getElementById('weblandUrlPill').textContent = url;
+  document.getElementById('weblandFrame').src = url;
+}
+let WEBLAND_INIT = false;
+function initWeblandPage(){
+  if(WEBLAND_INIT) return;
+  const sel = document.getElementById('weblandClusterSel');
+  sel.innerHTML = REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="' + c + '">' + c + '</option>').join('');
+  sel.addEventListener('change', weblandUpdate);
+  weblandUpdate();
+  WEBLAND_INIT = true;
 }
 </script>
 </body>
