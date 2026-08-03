@@ -265,6 +265,20 @@
   .ask-vg-modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
   .ask-vg-modal-head h3{font-size:16px;}
   .ask-vg-close{background:none;border:none;font-size:17px;cursor:pointer;color:var(--ink-soft);}
+
+  .adlink-card{
+    display:flex;align-items:center;gap:14px;background:var(--panel-alt);
+    border:1px solid var(--border);border-radius:10px;padding:16px 18px;
+  }
+  .adlink-icon{font-size:28px;line-height:1;}
+  .adlink-text{flex:1;}
+  .adlink-title{font-weight:700;font-size:13.5px;}
+  .adlink-sub{font-size:11.5px;color:var(--ink-soft);margin-top:2px;}
+  .adlink-btn{
+    padding:9px 18px;background:var(--accent);color:#fff;border-radius:8px;
+    font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;
+  }
+  .adlink-btn:hover{opacity:.92;}
   .ask-vg-close:hover{color:var(--ink);}
 </style>
 </head>
@@ -499,33 +513,33 @@
     <div class="page-title">Ad Transparency — Google + Meta</div>
     <div class="page-sub">Public transparency tools showing SolarSquare's currently-running ads — no login, no ad account access needed. This is not your actual campaign spend/performance data; for that, a real Google Ads / Meta Ads API integration would be needed separately.</div>
 
-    <div class="note">
-      <b>Note:</b> Google and Meta almost always block their pages from being shown inside another site (an "iframe") for security reasons — the embedded preview below may just appear blank. The <b>"Open in new tab"</b> links will work regardless, since those open the real site directly in your browser.
-    </div>
-
     <div class="section-card">
       <div class="section-head">
         <div class="section-title">Meta Ad Library <span class="section-tag">Facebook + Instagram</span></div>
-        <div class="section-desc">Every ad Meta shows as currently active for the SolarSquare Page, across Facebook and Instagram.</div>
+        <div class="section-desc">Every ad Meta shows as currently active for the SolarSquare Page, across Facebook and Instagram. Meta blocks its Ad Library from being embedded here, so this opens in a new tab.</div>
       </div>
-      <div class="controls">
-        <a href="https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=IN&q=solarsquare" target="_blank" rel="noopener" class="pill" style="text-decoration:none;font-weight:700;">Open Meta Ad Library ↗</a>
-      </div>
-      <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#f6f8fa;">
-        <iframe id="metaAdLibFrame" style="width:100%;height:60vh;border:none;display:block;"></iframe>
+      <div class="adlink-card">
+        <div class="adlink-icon">📘</div>
+        <div class="adlink-text">
+          <div class="adlink-title">Meta Ad Library — SolarSquare (India, active ads)</div>
+          <div class="adlink-sub">facebook.com/ads/library</div>
+        </div>
+        <a href="https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=IN&q=solarsquare" target="_blank" rel="noopener" class="adlink-btn">Open ↗</a>
       </div>
     </div>
 
     <div class="section-card">
       <div class="section-head">
         <div class="section-title">Google Ads Transparency Center <span class="section-tag">Search + Display + YouTube</span></div>
-        <div class="section-desc">Ads Google shows as run by SolarSquare's domain, across Search, Display, and YouTube.</div>
+        <div class="section-desc">Ads Google shows as run by SolarSquare's domain, across Search, Display, and YouTube. Google blocks this page from being embedded here, so this opens in a new tab.</div>
       </div>
-      <div class="controls">
-        <a href="https://adstransparency.google.com/?region=IN&domain=solarsquare.in" target="_blank" rel="noopener" class="pill" style="text-decoration:none;font-weight:700;">Open Google Ads Transparency ↗</a>
-      </div>
-      <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#f6f8fa;">
-        <iframe id="googleAdsTransFrame" style="width:100%;height:60vh;border:none;display:block;"></iframe>
+      <div class="adlink-card">
+        <div class="adlink-icon">🔍</div>
+        <div class="adlink-text">
+          <div class="adlink-title">Google Ads Transparency — solarsquare.in</div>
+          <div class="adlink-sub">adstransparency.google.com</div>
+        </div>
+        <a href="https://adstransparency.google.com/?region=IN&domain=solarsquare.in" target="_blank" rel="noopener" class="adlink-btn">Open ↗</a>
       </div>
     </div>
   </div>
@@ -822,7 +836,6 @@ function showPage(id){
   document.getElementById('nav-webland').classList.toggle('active', id === 'webland');
   if(id === 'webland') initWeblandPage();
   document.getElementById('nav-adtransparency').classList.toggle('active', id === 'adtransparency');
-  if(id === 'adtransparency') initAdTransparencyPage();
   if(id === 'mom' && !MOM_DATA_LOADED && !MOM_LOAD_ERROR) ensureAccessKey(() => loadMomFunnelData());
   if((id === 'channel' || id === 'cohort' || id === 'targets') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) ensureAccessKey(() => loadChannelData());
   if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) ensureAccessKey(() => loadTargetsData());
@@ -2732,13 +2745,6 @@ function initWeblandPage(){
   WEBLAND_INIT = true;
 }
 
-let ADTRANSPARENCY_INIT = false;
-function initAdTransparencyPage(){
-  if(ADTRANSPARENCY_INIT) return;
-  document.getElementById('metaAdLibFrame').src = 'https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=IN&q=solarsquare';
-  document.getElementById('googleAdsTransFrame').src = 'https://adstransparency.google.com/?region=IN&domain=solarsquare.in';
-  ADTRANSPARENCY_INIT = true;
-}
 </script>
 </body>
 </html>
