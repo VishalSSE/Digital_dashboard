@@ -334,6 +334,10 @@
       <div class="side-item" id="nav-cohort" onclick="showPage('cohort')">BQL Cohort Funnel</div>
     </div>
     <div class="side-section">
+      <div class="side-label">Quality</div>
+      <div class="side-item" id="nav-lnilnq" onclick="showPage('lnilnq')">LNI &amp; LNQ</div>
+    </div>
+    <div class="side-section">
       <div class="side-label">SolarSquare</div>
       <div class="side-item" id="nav-webland" onclick="showPage('webland')">Landing Pages by Cluster</div>
       <div class="side-item" id="nav-adtransparency" onclick="showPage('adtransparency')">Ad Transparency (Google + Meta)</div>
@@ -495,6 +499,72 @@
       </div>
       <div id="chartWrapB" class="chart-wrap"></div>
       <div id="funnelTableWrapB" class="table-wrap"></div>
+    </div>
+  </div>
+
+  <div id="page-lnilnq" class="page-view" style="display:none;">
+    <div class="page-title">LNI &amp; LNQ</div>
+    <div class="page-sub">Lead Not Interested / Lead Not Qualified — live from "Lead Sent to LRM" · data available from Jul 2026 onward.</div>
+
+    <div class="note" id="lnilnqLoadStatus">Connecting to live sheet…</div>
+
+    <div class="controls">
+      <div><label>Month</label><select id="lnilnqMonthSel"></select></div>
+      <div class="pill" id="lnilnqPill"></div>
+    </div>
+
+    <!-- ===== SECTION 1: Overall Performance ===== -->
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Overall Performance <span class="section-tag">India-wide</span></div>
+        <div class="section-desc">Total leads sent to LRM this month, and how many were marked LNI / LNQ — plus how many of those were marked before the next stage even happened.</div>
+      </div>
+      <div class="india-summary" id="lnilnqKpis"></div>
+    </div>
+
+    <!-- ===== SECTION 2: Analysis ===== -->
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Reason &amp; Channel Analysis <span class="section-tag">City × Category</span></div>
+        <div class="section-desc">Pick a city and LNI or LNQ to see why leads were marked that way, and which channels they came from.</div>
+      </div>
+      <div class="controls">
+        <div><label>City</label><select id="lnilnqCitySel"></select></div>
+        <div><label>Category</label>
+          <div class="toggle-group" id="lnilnqCatToggle">
+            <button type="button" class="toggle-btn active" data-cat="LNI">Lead Not Interested</button>
+            <button type="button" class="toggle-btn" data-cat="LNQ">Lead Not Qualified</button>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div>
+          <div class="section-desc" style="margin-bottom:8px;font-weight:700;">Reason-wise Breakup</div>
+          <div id="lnilnqReasonTable" class="table-wrap"></div>
+        </div>
+        <div>
+          <div class="section-desc" style="margin-bottom:8px;font-weight:700;">Marketing Channel Contribution</div>
+          <div id="lnilnqChannelTable" class="table-wrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== SECTION 3: LNQ Deep Dive ===== -->
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">LNQ Deep Dive <span class="section-tag">Reason Categories &amp; High-Risk Pins</span></div>
+        <div class="section-desc">Broad LNQ reason buckets (keyword-matched from the free-text reason field), and pins with the highest LNQ rate — nationwide, all clusters.</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:16px;">
+        <div>
+          <div class="section-desc" style="margin-bottom:8px;font-weight:700;">LNQ Reason Categories</div>
+          <div id="lnilnqCategoryTable" class="table-wrap"></div>
+        </div>
+        <div>
+          <div class="section-desc" style="margin-bottom:8px;font-weight:700;">High-Risk Pins <span class="section-tag" style="margin-left:6px;">Top 20 by LNQ%</span></div>
+          <div id="lnilnqPinTable" class="table-wrap"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -931,6 +1001,8 @@ function showPage(id){
   document.getElementById('nav-webland').classList.toggle('active', id === 'webland');
   if(id === 'webland') initWeblandPage();
   document.getElementById('nav-adtransparency').classList.toggle('active', id === 'adtransparency');
+  document.getElementById('nav-lnilnq').classList.toggle('active', id === 'lnilnq');
+  if(id === 'lnilnq' && !LNILNQ_LOADED && !LNILNQ_LOAD_ERROR) ensureAccessKey(() => loadLniLnqData());
   if(id === 'mom' && !MOM_DATA_LOADED && !MOM_LOAD_ERROR) ensureAccessKey(() => loadMomFunnelData());
   if((id === 'channel' || id === 'cohort' || id === 'targets') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) ensureAccessKey(() => loadChannelData());
   if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) ensureAccessKey(() => loadTargetsData());
@@ -3155,6 +3227,250 @@ function initWeblandPage(){
   sel.addEventListener('change', weblandUpdate);
   weblandUpdate();
   WEBLAND_INIT = true;
+}
+
+// =====================================================================
+// LNI & LNQ — live from "Lead Sent to LRM" tab
+// Column mapping (confirmed): E=Cluster, F=Pin, G=Marketing_Channel,
+// K=Lead_to_LRM_Date (used for month filter), N=Dev_Done_Date,
+// O=First_Meeting_Scheduled (MS Date), T=SCApp_Stage (LNI/LNQ filter here), X=reason.
+// =====================================================================
+let RAW_LNILNQ = [];
+let LNILNQ_LOADED = false;
+let LNILNQ_LOAD_ERROR = false;
+let LNILNQ_LOAD_STARTED = false;
+let LNILNQ_PAGE_INIT = false;
+let LNILNQ_MONTHS = []; // 'MMM YYYY' strings, sorted
+
+// Parses M/D/YYYY (confirmed format: "6/30/2026" can only be M/D since no month 30 exists).
+function parseMDY(str){
+  if(!str) return null;
+  const parts = String(str).trim().split('/');
+  if(parts.length !== 3) return null;
+  const m = parseInt(parts[0], 10), d = parseInt(parts[1], 10), y = parseInt(parts[2], 10);
+  if(!m || !d || !y) return null;
+  return new Date(y, m - 1, d);
+}
+
+async function loadLniLnqData(){
+  if(LNILNQ_LOAD_STARTED) return;
+  LNILNQ_LOAD_STARTED = true;
+  const statusEl = document.getElementById('lnilnqLoadStatus');
+  statusEl.className = 'note';
+  statusEl.innerHTML = 'Connecting to live sheet…';
+  try {
+    const text = await fetchViaProxy('lniLnq');
+    const rows = parseCSV(text);
+    if(!rows.length) throw new Error('Sheet returned no data');
+    const header = rows[0].map(h => h.trim());
+    const idx = {};
+    header.forEach((h,i) => { idx[normalizeHeader(h)] = i; });
+
+    // Resolve each needed column by fuzzy header match, with a hardcoded-letter fallback
+    // in case the header text doesn't match cleanly (columns confirmed by screenshot: E,F,G,K,N,O,T,X).
+    function colIdx(headerGuesses, letterFallback){
+      for(const g of headerGuesses){ if(idx[normalizeHeader(g)] !== undefined) return idx[normalizeHeader(g)]; }
+      return letterFallback.charCodeAt(0) - 65; // 'A'=0
+    }
+    const cClusterIdx = colIdx(['Cluster'], 'E');
+    const cPinIdx = colIdx(['Pin'], 'F');
+    const cChannelIdx = colIdx(['Marketing_Channel'], 'G');
+    const cLrmDateIdx = colIdx(['Lead_to_LRM_Date'], 'K');
+    const cDevDoneIdx = colIdx(['Dev_Done_Date'], 'N');
+    const cMsDateIdx = colIdx(['First_Meeting_Scheduled','First_Meeting_S'], 'O');
+    const cStageIdx = colIdx(['SCApp_Stage'], 'T');
+    const cReasonIdx = colIdx(['l_reason','LRM_reason','Reason'], 'X');
+
+    RAW_LNILNQ = [];
+    const monthSet = new Set();
+    for(let r = 1; r < rows.length; r++){
+      const row = rows[r];
+      const lrmDate = parseMDY(row[cLrmDateIdx]);
+      if(!lrmDate) continue;
+      const stage = (row[cStageIdx] || '').trim();
+      const stageNorm = stage.toLowerCase();
+      let category = null;
+      if(stageNorm.includes('not interested')) category = 'LNI';
+      else if(stageNorm.includes('not qualified')) category = 'LNQ';
+
+      const monthKey = MONTH_NAMES[lrmDate.getMonth()] + ' ' + lrmDate.getFullYear();
+      monthSet.add(monthKey);
+
+      RAW_LNILNQ.push({
+        cluster: (row[cClusterIdx] || '').trim(),
+        pin: (row[cPinIdx] || '').trim(),
+        channel: (row[cChannelIdx] || '').trim(),
+        lrmDate, monthKey,
+        msDate: !!(row[cMsDateIdx] || '').trim(),
+        devDone: !!(row[cDevDoneIdx] || '').trim(),
+        category, // 'LNI' | 'LNQ' | null
+        reason: (row[cReasonIdx] || '').trim()
+      });
+    }
+
+    LNILNQ_MONTHS = [...monthSet].sort((a,b) => monthSortValue(a) - monthSortValue(b));
+    LNILNQ_LOADED = true;
+    statusEl.className = 'note status-ok';
+    statusEl.innerHTML = '<b>Live data connected</b> — ' + RAW_LNILNQ.length.toLocaleString('en-IN') + ' lead(s) loaded across ' + LNILNQ_MONTHS.length + ' month(s).';
+    initLniLnqPage();
+  } catch(err){
+    if(err.isAuthError){
+      LNILNQ_LOAD_STARTED = false;
+      statusEl.className = 'note';
+      statusEl.innerHTML = 'Enter the access key to load live data.';
+      handleBadKey();
+      return;
+    }
+    LNILNQ_LOAD_ERROR = true;
+    statusEl.className = 'note status-err';
+    statusEl.innerHTML = '<b>Could not load LNI/LNQ data.</b> ' + err.message + '. Confirm the Apps Script proxy is deployed correctly, then reload this page.';
+  }
+}
+
+function lniLnqReasonCategory(reasonText){
+  const r = (reasonText || '').toLowerCase();
+  if(/non[\s-]?service|not service|outside.*(service|area)/.test(r)) return 'Non-serviceable area';
+  if(/low bill|bill.*low|small bill/.test(r)) return 'Low bill';
+  if(/roof/.test(r)) return 'Roof issue';
+  return 'Other LNQ reasons';
+}
+
+function initLniLnqPage(){
+  if(!LNILNQ_PAGE_INIT){
+    const monthSel = document.getElementById('lnilnqMonthSel');
+    monthSel.innerHTML = LNILNQ_MONTHS.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+    if(LNILNQ_MONTHS.length) monthSel.value = LNILNQ_MONTHS[LNILNQ_MONTHS.length - 1];
+    monthSel.addEventListener('change', drawLniLnqAll);
+
+    const citySel = document.getElementById('lnilnqCitySel');
+    citySel.innerHTML = '<option value="__all__">All Cities</option>' + REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="' + c + '">' + c + '</option>').join('');
+    citySel.addEventListener('change', drawLniLnqAnalysis);
+
+    document.querySelectorAll('#lnilnqCatToggle .toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#lnilnqCatToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        drawLniLnqAnalysis();
+      });
+    });
+    LNILNQ_PAGE_INIT = true;
+  }
+  drawLniLnqAll();
+}
+
+function drawLniLnqAll(){
+  drawLniLnqOverall();
+  drawLniLnqAnalysis();
+  drawLniLnqDeepDive();
+}
+
+function drawLniLnqOverall(){
+  const month = document.getElementById('lnilnqMonthSel').value;
+  document.getElementById('lnilnqPill').textContent = month || '—';
+  const leads = RAW_LNILNQ.filter(l => l.monthKey === month);
+
+  const total = leads.length;
+  const lni = leads.filter(l => l.category === 'LNI');
+  const lnq = leads.filter(l => l.category === 'LNQ');
+  const lniBeforeMs = lni.filter(l => !l.msDate).length;
+  const lnqBeforeDev = lnq.filter(l => !l.devDone).length;
+
+  const pct = (a,b) => b > 0 ? (a/b*100).toFixed(0) + '%' : '—';
+
+  const cards = [
+    {label:'Total Leads Sent to LRM', value: total.toLocaleString('en-IN')},
+    {label:'LNI Count', value: lni.length.toLocaleString('en-IN'), sub: pct(lni.length, total) + ' of total'},
+    {label:'LNQ Count', value: lnq.length.toLocaleString('en-IN'), sub: pct(lnq.length, total) + ' of total'},
+    {label:'LNI Marked Before MS', value: lniBeforeMs.toLocaleString('en-IN'), sub: pct(lniBeforeMs, total) + ' of total leads'},
+    {label:'LNQ Marked Before Dev Done', value: lnqBeforeDev.toLocaleString('en-IN'), sub: pct(lnqBeforeDev, total) + ' of total leads'}
+  ];
+  document.getElementById('lnilnqKpis').innerHTML = cards.map(c =>
+    '<div class="kpi"><div class="label">' + c.label + '</div><div class="value">' + c.value + '</div>' +
+    (c.sub ? '<div class="delta up" style="color:var(--ink-soft);">' + c.sub + '</div>' : '') + '</div>'
+  ).join('');
+}
+
+function drawLniLnqAnalysis(){
+  const month = document.getElementById('lnilnqMonthSel').value;
+  const city = document.getElementById('lnilnqCitySel').value;
+  const cat = document.querySelector('#lnilnqCatToggle .toggle-btn.active').dataset.cat;
+
+  let leads = RAW_LNILNQ.filter(l => l.monthKey === month && l.category === cat);
+  if(city !== '__all__') leads = leads.filter(l => l.cluster === city);
+
+  const total = leads.length;
+
+  // Reason-wise breakup
+  const reasonCounts = {};
+  leads.forEach(l => {
+    const r = l.reason || '(no reason entered)';
+    reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+  });
+  const reasonRows = Object.keys(reasonCounts).sort((a,b) => reasonCounts[b] - reasonCounts[a]).map(r =>
+    '<tr><td class="cluster-name">' + r + '</td><td>' + reasonCounts[r].toLocaleString('en-IN') + '</td><td class="conv-td">' + (total>0?(reasonCounts[r]/total*100).toFixed(0):0) + '%</td></tr>'
+  ).join('');
+  document.getElementById('lnilnqReasonTable').innerHTML = total ?
+    '<table><thead><tr><th class="cluster-col">Reason</th><th>Count</th><th class="conv-head">%</th></tr></thead><tbody>' + reasonRows + '</tbody></table>' :
+    '<p class="page-sub">No ' + cat + ' leads for this selection.</p>';
+
+  // Marketing channel breakup
+  const chanCounts = {};
+  leads.forEach(l => {
+    const c = l.channel || '(unknown)';
+    chanCounts[c] = (chanCounts[c] || 0) + 1;
+  });
+  const chanRows = Object.keys(chanCounts).sort((a,b) => chanCounts[b] - chanCounts[a]).map(c =>
+    '<tr><td class="cluster-name">' + c + '</td><td>' + chanCounts[c].toLocaleString('en-IN') + '</td><td class="conv-td">' + (total>0?(chanCounts[c]/total*100).toFixed(0):0) + '%</td></tr>'
+  ).join('');
+  document.getElementById('lnilnqChannelTable').innerHTML = total ?
+    '<table><thead><tr><th class="cluster-col">Channel</th><th>Count</th><th class="conv-head">%</th></tr></thead><tbody>' + chanRows + '</tbody></table>' :
+    '<p class="page-sub">No ' + cat + ' leads for this selection.</p>';
+}
+
+function drawLniLnqDeepDive(){
+  const month = document.getElementById('lnilnqMonthSel').value;
+  const lnqLeads = RAW_LNILNQ.filter(l => l.monthKey === month && l.category === 'LNQ');
+  const allLeadsThisMonth = RAW_LNILNQ.filter(l => l.monthKey === month);
+
+  // Reason category buckets
+  const catCounts = {};
+  lnqLeads.forEach(l => {
+    const cat = lniLnqReasonCategory(l.reason);
+    catCounts[cat] = (catCounts[cat] || 0) + 1;
+  });
+  const totalLnq = lnqLeads.length;
+  const catOrder = ['Non-serviceable area','Low bill','Roof issue','Other LNQ reasons'];
+  const catRows = catOrder.map(cat => {
+    const cnt = catCounts[cat] || 0;
+    return '<tr><td class="cluster-name">' + cat + '</td><td>' + cnt.toLocaleString('en-IN') + '</td><td class="conv-td">' + (totalLnq>0?(cnt/totalLnq*100).toFixed(0):0) + '%</td></tr>';
+  }).join('');
+  document.getElementById('lnilnqCategoryTable').innerHTML = totalLnq ?
+    '<table><thead><tr><th class="cluster-col">Category</th><th>LNQ Count</th><th class="conv-head">%</th></tr></thead><tbody>' + catRows + '</tbody></table>' :
+    '<p class="page-sub">No LNQ leads this month.</p>';
+
+  // Pin-level: LNQ count, total leads from pin, LNQ%
+  const pinTotals = {};
+  allLeadsThisMonth.forEach(l => {
+    if(!l.pin) return;
+    if(!pinTotals[l.pin]) pinTotals[l.pin] = {total:0, lnq:0};
+    pinTotals[l.pin].total++;
+  });
+  lnqLeads.forEach(l => {
+    if(!l.pin) return;
+    if(!pinTotals[l.pin]) pinTotals[l.pin] = {total:0, lnq:0};
+    pinTotals[l.pin].lnq++;
+  });
+  const pinRows = Object.keys(pinTotals)
+    .map(pin => ({pin, total: pinTotals[pin].total, lnq: pinTotals[pin].lnq, pct: pinTotals[pin].total>0 ? (pinTotals[pin].lnq/pinTotals[pin].total*100) : 0}))
+    .filter(p => p.lnq > 0)
+    .sort((a,b) => b.pct - a.pct)
+    .slice(0, 20);
+  const pinHtml = pinRows.map(p =>
+    '<tr><td class="cluster-name">' + p.pin + '</td><td>' + p.lnq.toLocaleString('en-IN') + '</td><td>' + p.total.toLocaleString('en-IN') + '</td><td class="conv-td"><span class="conv-cell contrib-cell ' + (p.pct>=30?'contrib-hi':(p.pct>=10?'contrib-mid':'contrib-lo')) + '">' + p.pct.toFixed(0) + '%</span></td></tr>'
+  ).join('');
+  document.getElementById('lnilnqPinTable').innerHTML = pinRows.length ?
+    '<table><thead><tr><th class="cluster-col">Pin</th><th>LNQ Count</th><th>Total Leads</th><th class="conv-head">LNQ %</th></tr></thead><tbody>' + pinHtml + '</tbody></table>' :
+    '<p class="page-sub">No LNQ leads with a pin this month.</p>';
 }
 
 </script>
