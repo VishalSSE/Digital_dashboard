@@ -2043,6 +2043,31 @@ function askVgFindCluster(qNorm){
   return best;
 }
 
+// ---- All-India aggregate helpers — used whenever no specific cluster is named ----
+// (e.g. "august bql" with no cluster mentioned means "BQL for all of India").
+function askVgClusterMonthTotal(cluster, year, month, stageKey){
+  if(cluster) return getClusterMonthTotal(cluster, year, month, stageKey);
+  return REAL_CLUSTER_NAMES.reduce((a,name) => a + getClusterMonthTotal(name, year, month, stageKey), 0);
+}
+function askVgClusterMTDTotal(cluster, year, month, uptoDay, stageKey){
+  if(cluster) return getClusterMTDTotal(cluster, year, month, uptoDay, stageKey);
+  return REAL_CLUSTER_NAMES.reduce((a,name) => a + getClusterMTDTotal(name, year, month, uptoDay, stageKey), 0);
+}
+function askVgGetTarget(cluster, month, key){
+  if(cluster) return getTarget(cluster, month, key);
+  return REAL_CLUSTER_NAMES.reduce((a,name) => a + getTarget(name, month, key), 0);
+}
+function askVgMomRow(month, cluster){
+  if(cluster) return (DATA[month] && DATA[month][cluster]) || EMPTY_STAGE_ROW;
+  const row = Object.assign({}, EMPTY_STAGE_ROW);
+  REAL_CLUSTER_NAMES.forEach(name => {
+    const r = (DATA[month] && DATA[month][name]) || EMPTY_STAGE_ROW;
+    Object.keys(EMPTY_STAGE_ROW).forEach(k => row[k] += r[k]);
+  });
+  return row;
+}
+function askVgClusterLabel(cluster){ return cluster || 'All India'; }
+
 // Canonical funnel order — used to resolve "which direction" for any two stages mentioned together,
 // regardless of the connector word used ("to", "vs", "and", "compare", or just both named).
 const ASKVG_STAGE_ORDER = ['bql','lrm','mfs','mfd','order','hoto'];
@@ -2199,15 +2224,37 @@ function askVgGetMomPeriods(qNorm, nMonths){
   }).filter(Boolean);
 }
 
+function askVgAllIndiaAggMC(key){
+  const total = {total:0, channels:{}};
+  if(!AGG_MC[key]) return total;
+  Object.values(AGG_MC[key]).forEach(bucket => {
+    total.total += bucket.total;
+    Object.keys(bucket.channels).forEach(ch => { total.channels[ch] = (total.channels[ch] || 0) + bucket.channels[ch]; });
+  });
+  return total;
+}
+function askVgAllIndiaChanMonth(key, channel){
+  let bql = 0, lrm = 0;
+  if(AGG_CHAN_MONTH[key]){
+    Object.values(AGG_CHAN_MONTH[key]).forEach(clusterData => {
+      const d = clusterData[channel];
+      if(d){ bql += d.bql; lrm += d.lrm; }
+    });
+  }
+  return {bql, lrm};
+}
+
 function askVgChannelMixTable(cluster, periods){
   const months = periods;
   const rows = CHANNELS.map(channel => {
     const cells = months.map(m => {
       const key = m.year + '-' + m.month;
-      const bucket = (AGG_MC[key] && AGG_MC[key][cluster]) || {total:0, channels:{}};
+      const bucket = cluster ? ((AGG_MC[key] && AGG_MC[key][cluster]) || {total:0, channels:{}}) : askVgAllIndiaAggMC(key);
       const chanCount = bucket.channels[channel] || 0;
       const pct = bucket.total > 0 ? (chanCount / bucket.total * 100) : null;
-      const chanMonthData = AGG_CHAN_MONTH[key] && AGG_CHAN_MONTH[key][cluster] && AGG_CHAN_MONTH[key][cluster][channel];
+      const chanMonthData = cluster
+        ? (AGG_CHAN_MONTH[key] && AGG_CHAN_MONTH[key][cluster] && AGG_CHAN_MONTH[key][cluster][channel])
+        : askVgAllIndiaChanMonth(key, channel);
       const convPct = (chanMonthData && chanMonthData.bql > 0) ? (chanMonthData.lrm / chanMonthData.bql * 100) : null;
       return '<td>' + (pct === null ? '—' : pct.toFixed(0) + '%') + '</td><td class="conv-td">' + (convPct === null ? '—' : convPct.toFixed(0) + '%') + '</td>';
     }).join('');
@@ -2218,8 +2265,9 @@ function askVgChannelMixTable(cluster, periods){
   return '<div class="table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>';
 }
 
+
 function askVgCohortFunnelSeries(cluster, channel, monthPeriods){
-  let leads = RAW_LEADS.filter(l => l.city === cluster);
+  let leads = cluster ? RAW_LEADS.filter(l => l.city === cluster) : RAW_LEADS;
   if(channel) leads = leads.filter(l => l.channel === channel);
   const periods = monthPeriods.map(m => ({key: m.year + '-' + m.month, label: monthLabel(m)}));
   return buildFunnelSeries(leads, l => l.year + '-' + l.month, periods);
@@ -2284,13 +2332,13 @@ function askVgTargetRows(cluster, metricKey, periods){
     const daysInMon = new Date(m.year, m.month, 0).getDate();
     const curMonth = isCurrentMonth(m.year, m.month);
     const completedDays = curMonth ? Math.max(0, new Date().getDate() - 1) : daysInMon;
-    const monthlyTarget = getTarget(cluster, m.month, targetKey);
+    const monthlyTarget = askVgGetTarget(cluster, m.month, targetKey);
     let displayTarget;
     if(curMonth){
       const mult = mtdMultiplierForStage(cohortKey, m.year, m.month, completedDays);
       displayTarget = daysInMon > 0 ? (monthlyTarget / daysInMon * mult) : 0;
     } else displayTarget = monthlyTarget;
-    const achieved = curMonth ? getClusterMTDTotal(cluster, m.year, m.month, completedDays, cohortKey) : getClusterMonthTotal(cluster, m.year, m.month, cohortKey);
+    const achieved = curMonth ? askVgClusterMTDTotal(cluster, m.year, m.month, completedDays, cohortKey) : askVgClusterMonthTotal(cluster, m.year, m.month, cohortKey);
     const pct = displayTarget > 0 ? ((achieved - displayTarget) / displayTarget * 100) : null;
     return {label: monthLabel(m) + (curMonth ? ' (MTD)' : ''), target: displayTarget, achieved, pct};
   });
@@ -2312,10 +2360,24 @@ function askVgWantsWhy(qNorm){
 
 // Channel-level Cont%/Conv%/Attribution breakdown comparing two specific months —
 // currently only supported for BQL→LRM (that's the only pair with per-channel LRM data built up).
+function askVgAllIndiaChannelMap(key){
+  const map = {};
+  if(AGG_CHAN_MONTH[key]){
+    Object.values(AGG_CHAN_MONTH[key]).forEach(clusterData => {
+      Object.keys(clusterData).forEach(ch => {
+        if(!map[ch]) map[ch] = {bql:0, lrm:0};
+        map[ch].bql += clusterData[ch].bql;
+        map[ch].lrm += clusterData[ch].lrm;
+      });
+    });
+  }
+  return map;
+}
+
 function askVgChannelAttributionRows(cluster, monthA, monthB){
   const keyA = monthA.year + '-' + monthA.month, keyB = monthB.year + '-' + monthB.month;
-  const dataA = (AGG_CHAN_MONTH[keyA] && AGG_CHAN_MONTH[keyA][cluster]) || {};
-  const dataB = (AGG_CHAN_MONTH[keyB] && AGG_CHAN_MONTH[keyB][cluster]) || {};
+  const dataA = cluster ? ((AGG_CHAN_MONTH[keyA] && AGG_CHAN_MONTH[keyA][cluster]) || {}) : askVgAllIndiaChannelMap(keyA);
+  const dataB = cluster ? ((AGG_CHAN_MONTH[keyB] && AGG_CHAN_MONTH[keyB][cluster]) || {}) : askVgAllIndiaChannelMap(keyB);
   const totalA = Object.values(dataA).reduce((a,v) => a + v.bql, 0);
   const totalB = Object.values(dataB).reduce((a,v) => a + v.bql, 0);
   return CHANNELS.map(ch => {
@@ -2366,8 +2428,8 @@ function askVgConversionRows(cluster, fromKey, toKey, periods){
   const fromCohort = ASKVG_KEY_TO_COHORT[fromKey], toCohort = ASKVG_KEY_TO_COHORT[toKey];
   const monthsObjs = periods;
   return monthsObjs.map(m => {
-    const fromCount = getClusterMonthTotal(cluster, m.year, m.month, fromCohort);
-    const toCount = getClusterMonthTotal(cluster, m.year, m.month, toCohort);
+    const fromCount = askVgClusterMonthTotal(cluster, m.year, m.month, fromCohort);
+    const toCount = askVgClusterMonthTotal(cluster, m.year, m.month, toCohort);
     const pct = fromCount > 0 ? (toCount / fromCount * 100) : null;
     return {label: monthLabel(m), from: fromCount, to: toCount, pct};
   });
@@ -2524,15 +2586,21 @@ function askVgSubmit(){
 
   const cluster = askVgFindCluster(qNorm);
   if(!cluster){
-    askVgShow('VG needs a bit more info', '<p>I couldn\'t find a cluster name in that question. Try something like:</p>' +
-      '<ul><li>"show me table of 3 months bql of ahmedabad"</li>' +
-      '<li>"show me 3 months trend of ahmedabad funnel"</li>' +
-      '<li>"show me ahmedabad channel mix of 3 months"</li>' +
-      '<li>"channel wise trend of nagpur google search funnel"</li>' +
-      '<li>"3 month target vs ach of jaipur lrm"</li>' +
-      '<li>"bql to lrm mom of indore"</li>' +
-      '<li>"which are the top 10 hoto contributor cities"</li></ul>');
-    return;
+    const hasSignal = askVgWantsFunnel(qNorm) || askVgFindMetric(qNorm) || askVgIsTargetVsAch(qNorm) ||
+      askVgConversionPair(qNorm) || askVgIsChannelMixPhrase(qNorm) || askVgFindChannel(qNorm) || askVgFindAllChannels(qNorm).length > 0;
+    if(!hasSignal){
+      askVgShow('VG needs a bit more info', '<p>I couldn\'t understand that question. Try something like:</p>' +
+        '<ul><li>"show me table of 3 months bql of ahmedabad"</li>' +
+        '<li>"show me 3 months trend of ahmedabad funnel"</li>' +
+        '<li>"show me ahmedabad channel mix of 3 months"</li>' +
+        '<li>"channel wise trend of nagpur google search funnel"</li>' +
+        '<li>"3 month target vs ach of jaipur lrm"</li>' +
+        '<li>"bql to lrm mom of indore"</li>' +
+        '<li>"which are the top 10 hoto contributor cities"</li>' +
+        '<li>"august bql" (no cluster named — shows the All India total)</li></ul>');
+      return;
+    }
+    // No cluster named but the question is otherwise clear — proceed as an All India aggregate.
   }
 
   const monthMatch = qNorm.match(/(\d+)\s*month/);
@@ -2562,14 +2630,14 @@ function askVgSubmit(){
         }).join('');
         return '<tr><td class="cluster-name">' + (perStage[0].rows[idx] ? perStage[0].rows[idx].label : monthLabel(m)) + '</td>' + cells + '</tr>';
       }).join('');
-      askVgShow('VG — ' + cluster + ' · Target vs Achievement · Full Funnel · last ' + monthsObjs.length + ' month(s)',
+      askVgShow('VG — ' + askVgClusterLabel(cluster) + ' · Target vs Achievement · Full Funnel · last ' + monthsObjs.length + ' month(s)',
         '<div class="table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>');
       return;
     }
     const metric = askVgFindMetric(qNorm) || 'bql';
     const rows = askVgTargetRows(cluster, metric, periods);
     if(!rows.length){ askVgShow('VG', '<p>No months of target data are available yet.</p>'); return; }
-    askVgShow('VG — ' + cluster + ' · ' + askVgStageLabel(metric) + ' Target vs Achievement · last ' + rows.length + ' month(s)',
+    askVgShow('VG — ' + askVgClusterLabel(cluster) + ' · ' + askVgStageLabel(metric) + ' Target vs Achievement · last ' + rows.length + ' month(s)',
       askVgTargetTableHtml(rows, askVgStageLabel(metric)));
     return;
   }
@@ -2596,7 +2664,7 @@ function askVgSubmit(){
       const overallRowB = askVgConversionRows(cluster, 'bql', 'lrm', [monthB])[0];
       const overallA = overallRowA.pct || 0, overallB = overallRowB.pct || 0;
       const analysisText = askVgConvAnalysisText(rows, overallA, overallB);
-      const title = 'VG — ' + cluster + ' · Why did BQL→LRM change? · ' + monthLabel(monthA) + ' → ' + monthLabel(monthB);
+      const title = 'VG — ' + askVgClusterLabel(cluster) + ' · Why did BQL→LRM change? · ' + monthLabel(monthA) + ' → ' + monthLabel(monthB);
       const html = '<p style="margin-bottom:14px;line-height:1.55;">' + analysisText + '</p>' +
         askVgAttributionTableHtml(rows, monthLabel(monthA), monthLabel(monthB));
       askVgShow(title, html);
@@ -2604,7 +2672,7 @@ function askVgSubmit(){
     }
     const rows = askVgConversionRows(cluster, pair.from, pair.to, periods);
     if(!rows.length){ askVgShow('VG', '<p>No months of data are available yet.</p>'); return; }
-    askVgShow('VG — ' + cluster + ' · ' + askVgStageLabel(pair.from) + '→' + askVgStageLabel(pair.to) + ' MoM · last ' + rows.length + ' month(s)',
+    askVgShow('VG — ' + askVgClusterLabel(cluster) + ' · ' + askVgStageLabel(pair.from) + '→' + askVgStageLabel(pair.to) + ' MoM · last ' + rows.length + ' month(s)',
       askVgConversionTableHtml(rows, askVgStageLabel(pair.from), askVgStageLabel(pair.to)));
     return;
   }
@@ -2631,7 +2699,7 @@ function askVgSubmit(){
       return;
     }
     const metricForCompare = isFunnel ? null : (askVgFindMetric(qNorm) || 'bql');
-    const title = 'VG — ' + cluster + ' · ' + allChannels.join(' vs ') + ' · ' + (isFunnel ? 'Full Funnel' : askVgStageLabel(metricForCompare)) + ' · last ' + periods.length + ' month(s)';
+    const title = 'VG — ' + askVgClusterLabel(cluster) + ' · ' + allChannels.join(' vs ') + ' · ' + (isFunnel ? 'Full Funnel' : askVgStageLabel(metricForCompare)) + ' · last ' + periods.length + ' month(s)';
     askVgShow(title, askVgChannelCompareHtml(cluster, allChannels, periods, isFunnel, wantsTrend, metricForCompare));
     return;
   }
@@ -2640,7 +2708,7 @@ function askVgSubmit(){
   if(isChannelMixPhrase && !channel){
     const months = periods;
     if(!months.length){ askVgShow('VG', '<p>No months of channel data are available yet.</p>'); return; }
-    const title = 'VG — ' + cluster + ' · Channel Mix (Cont% &amp; Conv%) · last ' + months.length + ' month(s)';
+    const title = 'VG — ' + askVgClusterLabel(cluster) + ' · Channel Mix (Cont% &amp; Conv%) · last ' + months.length + ' month(s)';
     askVgShow(title, askVgChannelMixTable(cluster, periods));
     return;
   }
@@ -2651,7 +2719,7 @@ function askVgSubmit(){
     if(!series.length){ askVgShow('VG', '<p>No months of data are available yet.</p>'); return; }
     const cohortKey = ASKVG_KEY_TO_COHORT[isFunnel ? 'bql' : (askVgFindMetric(qNorm) || 'bql')];
     const metricLabel = isFunnel ? 'Full Funnel' : askVgStageLabel(askVgFindMetric(qNorm) || 'bql');
-    const title = 'VG — ' + cluster + ' · ' + channel + ' · ' + metricLabel + ' · last ' + series.length + ' month(s)';
+    const title = 'VG — ' + askVgClusterLabel(cluster) + ' · ' + channel + ' · ' + metricLabel + ' · last ' + series.length + ' month(s)';
 
     if(isFunnel && wantsTrend){
       const palette = ['#0f6e5c','#1f6fd1','#8a5a00','#8a3fd1','#d1478a','#c53d3d'];
@@ -2682,36 +2750,36 @@ function askVgSubmit(){
     return;
   }
 
-  const title = 'VG — ' + cluster + ' · ' + (isFunnel ? 'Full Funnel' : askVgStageLabel(metric)) + ' · last ' + recentMonths.length + ' month(s)';
+  const title = 'VG — ' + askVgClusterLabel(cluster) + ' · ' + (isFunnel ? 'Full Funnel' : askVgStageLabel(metric)) + ' · last ' + recentMonths.length + ' month(s)';
 
   if(isFunnel && wantsTrend){
     const palette = ['#0f6e5c','#1f6fd1','#8a5a00','#8a3fd1','#d1478a','#c53d3d'];
     const series = STAGES.map((s,i) => ({
       name: s.label, color: palette[i % palette.length],
-      values: recentMonths.map(m => ((DATA[m] && DATA[m][cluster]) || EMPTY_STAGE_ROW)[s.key])
+      values: recentMonths.map(m => askVgMomRow(m, cluster)[s.key])
     }));
     const momKeyFor = key => (key === 'ms' ? 'mfs' : (key === 'md' ? 'mfd' : key));
     const convHtml = askVgConvBreakdownHtml(recentMonths, (key, idx) => {
-      const row = (DATA[recentMonths[idx]] && DATA[recentMonths[idx]][cluster]) || EMPTY_STAGE_ROW;
+      const row = askVgMomRow(recentMonths[idx], cluster);
       return row[momKeyFor(key)];
     });
     askVgShow(title, '<div id="askVgChartHolder" class="chart-wrap"></div>' + convHtml);
     renderLineChart('askVgChartHolder', recentMonths, series, '', true);
   } else if(isFunnel){
     const rows = recentMonths.map(m => {
-      const row = (DATA[m] && DATA[m][cluster]) || EMPTY_STAGE_ROW;
+      const row = askVgMomRow(m, cluster);
       return '<tr><td class="cluster-name">' + m + '</td>' + STAGES.map(s => '<td>' + row[s.key].toLocaleString('en-IN') + '</td>').join('') + '</tr>';
     }).join('');
     const table = '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th>' +
       STAGES.map(s => '<th>' + s.label + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
     askVgShow(title, table);
   } else if(wantsTrend){
-    const series = [{name: askVgStageLabel(metric), color:'#0f6e5c', values: recentMonths.map(m => ((DATA[m] && DATA[m][cluster]) || EMPTY_STAGE_ROW)[metric])}];
+    const series = [{name: askVgStageLabel(metric), color:'#0f6e5c', values: recentMonths.map(m => askVgMomRow(m, cluster)[metric])}];
     askVgShow(title, '<div id="askVgChartHolder" class="chart-wrap"></div>');
     renderLineChart('askVgChartHolder', recentMonths, series, '');
   } else {
     const rows = recentMonths.map(m => {
-      const row = (DATA[m] && DATA[m][cluster]) || EMPTY_STAGE_ROW;
+      const row = askVgMomRow(m, cluster);
       return '<tr><td class="cluster-name">' + m + '</td><td>' + row[metric].toLocaleString('en-IN') + '</td></tr>';
     }).join('');
     const table = '<div class="table-wrap"><table><thead><tr><th class="cluster-col">Month</th><th>' + askVgStageLabel(metric) + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
