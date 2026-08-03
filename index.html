@@ -693,9 +693,8 @@ const CONVERSIONS = [
   {from:'bql', to:'lrm', label:'BQL→LRM'},
   {from:'lrm', to:'mfs', label:'LRM→MS'},
   {from:'mfs', to:'mfd', label:'MS→MD'},
-  {from:'mfd', to:'order', label:'MD→Order'},
-  {from:'order', to:'hoto', label:'Order→HOTO'},
-  {from:'mfd', to:'hoto', label:'MD→HOTO'}
+  {from:'bql', to:'mfd', label:'BQL→MD'},
+  {from:'mfd', to:'order', label:'MD→Order'}
 ];
 
 
@@ -745,7 +744,7 @@ function chgHtml(cur, prev){
   if(pc === null) return '<span class="chg flat">—</span>';
   const cls = pc > 0.5 ? 'up' : (pc < -0.5 ? 'down' : 'flat');
   const sign = pc > 0 ? '+' : '';
-  return '<span class="chg ' + cls + '">' + sign + pc.toFixed(0) + '%</span>';
+  return '<span class="chg ' + cls + '" title="Previous: ' + prev.toLocaleString('en-IN') + '">' + prev.toLocaleString('en-IN') + '→' + sign + pc.toFixed(0) + '%</span>';
 }
 
 function getFilteredClusters(){
@@ -822,7 +821,7 @@ function renderFunnelTables(curLookup, prevLookup, prevLabel, pillText, pillElId
   summaryEl.innerHTML = STAGES.map(s => {
     const pc = prevLookup ? pctChange(totals[s.key], prevTotals[s.key]) : null;
     const deltaHtml = pc === null ? '' :
-      '<div class="delta ' + (pc>=0?'up':'down') + '">' + (pc>=0?'▲':'▼') + ' ' + Math.abs(pc).toFixed(0) + '% vs ' + prevLabel + '</div>';
+      '<div class="delta ' + (pc>=0?'up':'down') + '">' + (pc>=0?'▲':'▼') + ' ' + Math.abs(pc).toFixed(0) + '% vs ' + prevTotals[s.key].toLocaleString('en-IN') + ' (' + prevLabel + ')</div>';
     return '<div class="kpi"><div class="label">' + s.label + '</div><div class="value">' + totals[s.key].toLocaleString('en-IN') + '</div>' + deltaHtml + '</div>';
   }).join('');
 
