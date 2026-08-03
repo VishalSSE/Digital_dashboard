@@ -3245,7 +3245,7 @@ let LNILNQ_LOAD_STARTED = false;
 let LNILNQ_PAGE_INIT = false;
 let LNILNQ_MONTHS = []; // 'MMM YYYY' strings, sorted
 
-// Parses M/D/YYYY (confirmed format: "6/30/2026" can only be M/D since no month 30 exists).
+// Parses M/D/YYYY (used for other date columns like MS Date / Dev Done Date).
 function parseMDY(str){
   if(!str) return null;
   const parts = String(str).trim().split('/');
@@ -3253,6 +3253,20 @@ function parseMDY(str){
   const m = parseInt(parts[0], 10), d = parseInt(parts[1], 10), y = parseInt(parts[2], 10);
   if(!m || !d || !y) return null;
   return new Date(y, m - 1, d);
+}
+// Parses column Z's actual format: "Jun 26", "Jul 26", "Aug 26" — a month+2-digit-year label,
+// no day component. Returns {month, year} or null.
+function parseMonYY(str){
+  if(!str) return null;
+  const parts = String(str).trim().split(/\s+/);
+  if(parts.length < 2) return null;
+  const monAbbrev = parts[0].toLowerCase().slice(0, 3);
+  const monIdx = MONTH_NAMES.findIndex(m => m.toLowerCase() === monAbbrev);
+  if(monIdx === -1) return null;
+  let yr = parseInt(parts[1], 10);
+  if(isNaN(yr)) return null;
+  if(yr < 100) yr += 2000;
+  return {month: monIdx + 1, year: yr};
 }
 
 async function loadLniLnqData(){
@@ -3288,27 +3302,37 @@ async function loadLniLnqData(){
     const monthSet = new Set();
     for(let r = 1; r < rows.length; r++){
       const row = rows[r];
-      const lrmDate = parseMDY(row[cLrmDateIdx]);
-      if(!lrmDate) continue;
+      const my = parseMonYY(row[cLrmDateIdx]);
+      if(!my) continue;
       const stage = (row[cStageIdx] || '').trim();
       const stageNorm = stage.toLowerCase();
       let category = null;
       if(stageNorm.includes('not interested')) category = 'LNI';
       else if(stageNorm.includes('not qualified')) category = 'LNQ';
 
-      const monthKey = MONTH_NAMES[lrmDate.getMonth()] + ' ' + lrmDate.getFullYear();
+      const monthKey = MONTH_NAMES[my.month - 1] + ' ' + my.year;
       monthSet.add(monthKey);
 
       RAW_LNILNQ.push({
         cluster: (row[cClusterIdx] || '').trim(),
         pin: (row[cPinIdx] || '').trim(),
         channel: (row[cChannelIdx] || '').trim(),
-        lrmDate, monthKey,
+        monthKey,
         msDate: !!(row[cMsDateIdx] || '').trim(),
         devDone: !!(row[cDevDoneIdx] || '').trim(),
         category, // 'LNI' | 'LNQ' | null
         reason: (row[cReasonIdx] || '').trim()
       });
+    }
+
+    // If nothing parsed, don't silently report "0 leads" as if it worked — show exactly what's
+    // in the assumed date column vs. the actual header, so the real column can be identified fast.
+    if(RAW_LNILNQ.length === 0 && rows.length > 1){
+      const colLetter = i => { let s = ''; i = i + 1; while(i > 0){ s = String.fromCharCode(65 + ((i-1) % 26)) + s; i = Math.floor((i-1)/26); } return s; };
+      const sampleRows = rows.slice(1, 4);
+      const sampleVals = sampleRows.map((row,ri) => 'Row ' + (ri+2) + ': col ' + colLetter(cLrmDateIdx) + '="' + (row[cLrmDateIdx]||'') + '"').join(' | ');
+      const headerDump = header.map((h,i) => colLetter(i) + '=' + (h||'(blank)')).join(', ');
+      throw new Error('Found ' + (rows.length-1) + ' row(s) but none had a parseable date in column ' + colLetter(cLrmDateIdx) + '. Sample values there: ' + sampleVals + '. Full header row: ' + headerDump);
     }
 
     LNILNQ_MONTHS = [...monthSet].sort((a,b) => monthSortValue(a) - monthSortValue(b));
