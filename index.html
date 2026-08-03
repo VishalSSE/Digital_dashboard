@@ -1248,24 +1248,59 @@ function getTarget(city, month, stageKey){
   return t[stageKey][month - 1] || 0;
 }
 
-// Elapsed days for BQL/LRM MTD target: straightforward day count (today's date - 1)
-// Elapsed days for MS/MD/HOTO MTD target: excludes the 1st of the month and every Monday
-// (meetings/HoTo don't happen on those days), counted within [1, uptoDay].
-function countEffectiveElapsedDays(year, month, uptoDay){
+// Finds the last Monday of the given month (this Monday is NOT treated as a holiday —
+// only earlier Mondays in the month are).
+function getLastMondayOfMonth(year, month){
+  const daysInMon = new Date(year, month, 0).getDate();
+  for(let d = daysInMon; d >= 1; d--){
+    if(new Date(year, month - 1, d).getDay() === 1) return d;
+  }
+  return null;
+}
+// A day is excluded (non-working) if it's the 1st of the month, or a Monday other than
+// the last Monday of the month.
+function isExcludedWorkDay(year, month, day, lastMonday){
+  if(day === 1) return true;
+  const dow = new Date(year, month - 1, day).getDay();
+  return dow === 1 && day !== lastMonday;
+}
+function countWorkingDaysInRange(year, month, fromDay, toDay){
+  const lastMonday = getLastMondayOfMonth(year, month);
   let count = 0;
-  for(let d = 1; d <= uptoDay; d++){
-    if(d === 1) continue;
-    const dow = new Date(year, month - 1, d).getDay();
-    if(dow === 1) continue; // Monday
-    count++;
+  for(let d = fromDay; d <= toDay; d++){
+    if(!isExcludedWorkDay(year, month, d, lastMonday)) count++;
   }
   return count;
+}
+// Elapsed working days for MS/MD/Order/HOTO MTD target: excludes the 1st of the month and
+// every Monday EXCEPT the last Monday of the month, counted within [1, uptoDay].
+function countEffectiveElapsedDays(year, month, uptoDay){
+  return countWorkingDaysInRange(year, month, 1, uptoDay);
+}
+// Total working days across the FULL month — this is the denominator for MS/MD/Order/HOTO
+// (26 for Aug 2026: 31 calendar days minus 1st + 4 non-last Mondays), unlike BQL/LRM which
+// use plain calendar days as the denominator.
+function countWorkingDaysInMonth(year, month){
+  const daysInMon = new Date(year, month, 0).getDate();
+  return countWorkingDaysInRange(year, month, 1, daysInMon);
 }
 
 function mtdMultiplierForStage(stageKey, year, month, completedDays){
   return (stageKey === 'ms' || stageKey === 'md' || stageKey === 'order' || stageKey === 'hoto')
     ? countEffectiveElapsedDays(year, month, completedDays)
     : completedDays;
+}
+// Returns the correctly-scaled MTD target for any stage: BQL/LRM use calendar days as the
+// denominator; MS/MD/Order/HOTO use working days (excluding 1st-of-month + non-last Mondays)
+// as the denominator, per the confirmed holiday-calendar rule.
+function computeMtdTarget(stageKey, year, month, monthlyTarget, completedDays){
+  if(stageKey === 'ms' || stageKey === 'md' || stageKey === 'order' || stageKey === 'hoto'){
+    const denom = countWorkingDaysInMonth(year, month);
+    const elapsed = countEffectiveElapsedDays(year, month, completedDays);
+    return denom > 0 ? (monthlyTarget / denom * elapsed) : 0;
+  }
+  const daysInMon = new Date(year, month, 0).getDate();
+  return daysInMon > 0 ? (monthlyTarget / daysInMon * completedDays) : 0;
 }
 
 function initTargetsPage(){
@@ -1458,8 +1493,7 @@ function drawTargetsFunnel(){
       const monthlyTarget = getTarget(c, month, targetKey);
       let displayTarget;
       if(curMonth){
-        const mult = mtdMultiplierForStage(s.key, year, month, completedDays);
-        displayTarget = daysInMon > 0 ? (monthlyTarget / daysInMon * mult) : 0;
+        displayTarget = computeMtdTarget(s.key, year, month, monthlyTarget, completedDays);
       } else {
         displayTarget = monthlyTarget;
       }
@@ -2335,8 +2369,7 @@ function askVgTargetRows(cluster, metricKey, periods){
     const monthlyTarget = askVgGetTarget(cluster, m.month, targetKey);
     let displayTarget;
     if(curMonth){
-      const mult = mtdMultiplierForStage(cohortKey, m.year, m.month, completedDays);
-      displayTarget = daysInMon > 0 ? (monthlyTarget / daysInMon * mult) : 0;
+      displayTarget = computeMtdTarget(cohortKey, m.year, m.month, monthlyTarget, completedDays);
     } else displayTarget = monthlyTarget;
     const achieved = curMonth ? askVgClusterMTDTotal(cluster, m.year, m.month, completedDays, cohortKey) : askVgClusterMonthTotal(cluster, m.year, m.month, cohortKey);
     const pct = displayTarget > 0 ? ((achieved - displayTarget) / displayTarget * 100) : null;
