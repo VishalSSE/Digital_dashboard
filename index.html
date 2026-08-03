@@ -520,6 +520,9 @@
         <div class="section-desc">Total leads sent to LRM this month, and how many were marked LNI / LNQ — plus how many of those were marked before the next stage even happened.</div>
       </div>
       <div class="india-summary" id="lnilnqKpis"></div>
+
+      <div class="section-desc" style="margin:18px 0 8px;font-weight:700;">All Clusters — click <b>+</b> for channel &amp; category breakdown</div>
+      <div id="lnilnqClusterContainer"></div>
     </div>
 
     <!-- ===== SECTION 2: Analysis ===== -->
@@ -3275,7 +3278,7 @@ async function loadLniLnqData(){
     const cClusterIdx = colIdx(['Cluster'], 'E');
     const cPinIdx = colIdx(['Pin'], 'F');
     const cChannelIdx = colIdx(['Marketing_Channel'], 'G');
-    const cLrmDateIdx = colIdx(['Lead_to_LRM_Date'], 'K');
+    const cLrmDateIdx = colIdx([], 'Z'); // date column moved from K to Z
     const cDevDoneIdx = colIdx(['Dev_Done_Date'], 'N');
     const cMsDateIdx = colIdx(['First_Meeting_Scheduled','First_Meeting_S'], 'O');
     const cStageIdx = colIdx(['SCApp_Stage'], 'T');
@@ -3360,8 +3363,59 @@ function initLniLnqPage(){
 
 function drawLniLnqAll(){
   drawLniLnqOverall();
+  drawLniLnqClusters();
   drawLniLnqAnalysis();
   drawLniLnqDeepDive();
+}
+
+function drawLniLnqClusters(){
+  const month = document.getElementById('lnilnqMonthSel').value;
+  const monthLeads = RAW_LNILNQ.filter(l => l.monthKey === month);
+
+  function statsFor(leads){
+    const total = leads.length;
+    const lni = leads.filter(l => l.category === 'LNI').length;
+    const lnq = leads.filter(l => l.category === 'LNQ').length;
+    return {total, lni, lnq, lniPct: total>0?(lni/total*100):null, lnqPct: total>0?(lnq/total*100):null};
+  }
+  function fmtPct(v){ return v===null?'—':v.toFixed(0)+'%'; }
+  function pctCls(v){ return v===null?'contrib-lo':(v>=30?'contrib-hi':(v>=10?'contrib-mid':'contrib-lo')); }
+
+  const headerRow = '<tr><th class="cluster-col">Cluster</th><th>Total Leads</th><th>LNI Count</th><th class="conv-head">LNI %</th>' +
+    '<th>LNQ Count</th><th class="conv-head">LNQ %</th></tr>';
+
+  const regions = [...new Set(REAL_CLUSTER_NAMES.map(c => CLUSTER_REGION[c]))];
+  const regionBlocks = regions.map(region => {
+    const clustersInRegion = REAL_CLUSTER_NAMES.filter(c => CLUSTER_REGION[c] === region);
+    const rows = clustersInRegion.map(c => {
+      const clusterLeads = monthLeads.filter(l => l.cluster === c);
+      const s = statsFor(clusterLeads);
+      const expandBtn = '<button type="button" class="expand-btn" onclick="toggleChanRows(this)">+</button>';
+      const mainRow = '<tr data-cluster="lni-' + c + '"><td class="cluster-name">' + expandBtn + c + '</td>' +
+        '<td>' + s.total.toLocaleString('en-IN') + '</td>' +
+        '<td>' + s.lni.toLocaleString('en-IN') + '</td><td class="conv-td"><span class="contrib-cell ' + pctCls(s.lniPct) + '">' + fmtPct(s.lniPct) + '</span></td>' +
+        '<td>' + s.lnq.toLocaleString('en-IN') + '</td><td class="conv-td"><span class="contrib-cell ' + pctCls(s.lnqPct) + '">' + fmtPct(s.lnqPct) + '</span></td></tr>';
+
+      // Channel-level sub-rows for this cluster
+      const channels = [...new Set(clusterLeads.map(l => l.channel).filter(Boolean))];
+      const chanRows = channels.map(ch => {
+        const chLeads = clusterLeads.filter(l => l.channel === ch);
+        const cs = statsFor(chLeads);
+        return '<tr class="chan-row" data-parent="lni-' + c + '" style="display:none;"><td class="cluster-name">' + ch + '</td>' +
+          '<td>' + cs.total.toLocaleString('en-IN') + '</td>' +
+          '<td>' + cs.lni.toLocaleString('en-IN') + '</td><td class="conv-td">' + fmtPct(cs.lniPct) + '</td>' +
+          '<td>' + cs.lnq.toLocaleString('en-IN') + '</td><td class="conv-td">' + fmtPct(cs.lnqPct) + '</td></tr>';
+      }).join('');
+
+      return mainRow + chanRows;
+    }).join('');
+
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
+
+  document.getElementById('lnilnqClusterContainer').innerHTML = regionBlocks;
 }
 
 function drawLniLnqOverall(){
