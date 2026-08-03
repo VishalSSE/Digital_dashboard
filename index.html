@@ -367,6 +367,7 @@
         <div class="toggle-group" id="momModeToggle">
           <button type="button" class="toggle-btn active" data-mode="month">Month vs Month</button>
           <button type="button" class="toggle-btn" data-mode="range">Date Range vs Date Range</button>
+          <button type="button" class="toggle-btn" data-mode="lmtd">LMTD vs MTD</button>
         </div>
       </div>
     </div>
@@ -387,6 +388,10 @@
       <div><label>Period B — From</label><input type="date" id="rangeBFrom"></div>
       <div><label>To</label><input type="date" id="rangeBTo"></div>
       <div class="pill" id="periodPillRange"></div>
+    </div>
+
+    <div class="controls" id="momLmtdControls" style="display:none;">
+      <div class="pill" id="periodPillLmtd"></div>
     </div>
 
     <div class="india-summary" id="indiaSummary"></div>
@@ -856,6 +861,7 @@ function renderFunnelTables(curLookup, prevLookup, prevLabel, pillText, pillElId
 
 function draw(){
   if(MOM_MODE === 'range'){ drawRangeMode(); return; }
+  if(MOM_MODE === 'lmtd'){ drawLmtdMode(); return; }
   const monthSel = document.getElementById('monthSel');
   const compareSel = document.getElementById('compareSel');
   const month = monthSel.value;
@@ -864,6 +870,35 @@ function draw(){
   const prevLookup = prevMonth ? (name => (DATA[prevMonth] && DATA[prevMonth][name]) || EMPTY_STAGE_ROW) : null;
   const pillText = prevMonth ? (month + ' vs ' + prevMonth) : (month + ' (pick a month to compare)');
   renderFunnelTables(curLookup, prevLookup, prevMonth, pillText, 'periodPill');
+}
+
+// LMTD vs MTD: automatically compares "1st of this month → yesterday" against the
+// same day-range in the previous month — no manual date entry needed.
+function drawLmtdMode(){
+  const today = new Date();
+  const uptoDay = today.getDate() - 1;
+  if(uptoDay < 1){
+    document.getElementById('periodPillLmtd').textContent = 'Not enough days elapsed this month yet — check back after the 1st.';
+    document.getElementById('indiaSummary').innerHTML = '';
+    document.getElementById('regionContainer').innerHTML = '';
+    return;
+  }
+  const curYear = today.getFullYear(), curMonth = today.getMonth() + 1;
+  let prevYear = curYear, prevMonth = curMonth - 1;
+  if(prevMonth === 0){ prevMonth = 12; prevYear -= 1; }
+  const daysInPrevMonth = new Date(prevYear, prevMonth, 0).getDate();
+  const prevUptoDay = Math.min(uptoDay, daysInPrevMonth);
+
+  const mtdFrom = curYear + '-' + pad2(curMonth) + '-01';
+  const mtdTo = curYear + '-' + pad2(curMonth) + '-' + pad2(uptoDay);
+  const lmtdFrom = prevYear + '-' + pad2(prevMonth) + '-01';
+  const lmtdTo = prevYear + '-' + pad2(prevMonth) + '-' + pad2(prevUptoDay);
+
+  const curLookup = name => computeRangeSum(name, mtdFrom, mtdTo);
+  const prevLookup = name => computeRangeSum(name, lmtdFrom, lmtdTo);
+  const prevLabel = 'LMTD (' + lmtdFrom + ' – ' + lmtdTo + ')';
+  const pillText = 'MTD: ' + mtdFrom + ' – ' + mtdTo + '   vs   LMTD: ' + lmtdFrom + ' – ' + lmtdTo;
+  renderFunnelTables(curLookup, prevLookup, prevLabel, pillText, 'periodPillLmtd');
 }
 
 function drawRangeMode(){
@@ -2279,6 +2314,7 @@ function initMomPage(){
         MOM_MODE = btn.dataset.mode;
         document.getElementById('momMonthControls').style.display = MOM_MODE === 'month' ? 'flex' : 'none';
         document.getElementById('momRangeControls').style.display = MOM_MODE === 'range' ? 'flex' : 'none';
+        document.getElementById('momLmtdControls').style.display = MOM_MODE === 'lmtd' ? 'flex' : 'none';
         draw();
       });
     });
