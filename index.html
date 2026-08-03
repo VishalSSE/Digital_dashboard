@@ -279,6 +279,17 @@
     font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;
   }
   .adlink-btn:hover{opacity:.92;}
+
+  .insights-panel{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+  .insights-col{border-radius:10px;padding:14px 16px;}
+  .insights-col.pos{background:var(--up-bg);border:1px solid #bfe4cf;}
+  .insights-col.neg{background:var(--down-bg);border:1px solid #f0c2c2;}
+  .insights-col h4{font-size:13px;margin-bottom:8px;}
+  .insights-col.pos h4{color:var(--up);}
+  .insights-col.neg h4{color:var(--down);}
+  .insights-col ul{margin:0;padding-left:18px;font-size:12.5px;line-height:1.6;}
+  .insights-col li{margin-bottom:4px;}
+  .insights-summary{font-size:12.5px;color:var(--ink-soft);margin-bottom:12px;}
   .ask-vg-close:hover{color:var(--ink);}
 </style>
 </head>
@@ -566,15 +577,40 @@
           <div class="section-desc">Monthly (or MTD, for the running month) target vs achieved, daily target, and the day-on-day trail for the month.</div>
         </div>
         <div class="controls">
-          <div><label>Month</label><select id="tgtMonthSelBQL"></select></div>
+          <div><label>View</label>
+            <div class="toggle-group" id="tgtBqlModeToggle">
+              <button type="button" class="toggle-btn active" data-mode="month">Single Month</button>
+              <button type="button" class="toggle-btn" data-mode="compare">Compare Periods</button>
+            </div>
+          </div>
           <div><label>Scope</label>
             <select id="tgtScopeSelBQL">
               <option value="non-expansion">India Non-Expansion</option>
               <option value="expansion">India Expansion</option>
             </select>
           </div>
+        </div>
+
+        <div class="controls" id="tgtBqlMonthControls">
+          <div><label>Month</label><select id="tgtMonthSelBQL"></select></div>
           <div class="pill" id="tgtPillBQL"></div>
         </div>
+
+        <div class="controls" id="tgtBqlCompareControls" style="display:none;">
+          <div><label>Compare Last</label>
+            <select id="tgtBqlCompareDays">
+              <option value="3">3 Days</option>
+              <option value="5">5 Days</option>
+              <option value="7" selected>7 Days</option>
+              <option value="10">10 Days</option>
+              <option value="15">15 Days</option>
+              <option value="30">30 Days</option>
+            </select>
+          </div>
+          <div class="pill" id="tgtBqlComparePill"></div>
+        </div>
+
+        <div id="tgtBqlInsights" style="display:none;"></div>
         <div id="tgtRegionContainerBQL"></div>
       </div>
     </div>
@@ -586,15 +622,40 @@
           <div class="section-desc">Monthly (or MTD, for the running month) target vs achieved for BQL → Lead to LRM → First MS → First MD → Booking Done → HoTo. BD target mirrors HOTO's target (no separate BD target exists in the sheet).</div>
         </div>
         <div class="controls">
-          <div><label>Month</label><select id="tgtMonthSelFunnel"></select></div>
+          <div><label>View</label>
+            <div class="toggle-group" id="tgtFunnelModeToggle">
+              <button type="button" class="toggle-btn active" data-mode="month">Single Month</button>
+              <button type="button" class="toggle-btn" data-mode="compare">Compare Periods</button>
+            </div>
+          </div>
           <div><label>Scope</label>
             <select id="tgtScopeSelFunnel">
               <option value="non-expansion">India Non-Expansion</option>
               <option value="expansion">India Expansion</option>
             </select>
           </div>
+        </div>
+
+        <div class="controls" id="tgtFunnelMonthControls">
+          <div><label>Month</label><select id="tgtMonthSelFunnel"></select></div>
           <div class="pill" id="tgtPillFunnel"></div>
         </div>
+
+        <div class="controls" id="tgtFunnelCompareControls" style="display:none;">
+          <div><label>Compare Last</label>
+            <select id="tgtFunnelCompareDays">
+              <option value="3">3 Days</option>
+              <option value="5">5 Days</option>
+              <option value="7" selected>7 Days</option>
+              <option value="10">10 Days</option>
+              <option value="15">15 Days</option>
+              <option value="30">30 Days</option>
+            </select>
+          </div>
+          <div class="pill" id="tgtFunnelComparePill"></div>
+        </div>
+
+        <div id="tgtFunnelInsights" style="display:none;"></div>
         <div id="tgtRegionContainerFunnel"></div>
       </div>
     </div>
@@ -1303,6 +1364,195 @@ function computeMtdTarget(stageKey, year, month, monthlyTarget, completedDays){
   return daysInMon > 0 ? (monthlyTarget / daysInMon * completedDays) : 0;
 }
 
+function getLatestLeadDate(){
+  let maxDate = null;
+  RAW_LEADS.forEach(l => { if(!maxDate || l.dateObj > maxDate) maxDate = l.dateObj; });
+  return maxDate;
+}
+function computeDefaultCompareRanges(days){
+  const latest = getLatestLeadDate();
+  if(!latest) return null;
+  const p2To = isoDate(latest);
+  const p2From = addDaysISO(p2To, -(days - 1));
+  const p1To = addDaysISO(p2From, -1);
+  const p1From = addDaysISO(p1To, -(days - 1));
+  return {p1From, p1To, p2From, p2To};
+}
+// Prorated target + actual achieved for ANY date range (can span multiple months) —
+// BQL/LRM prorate by calendar days, MS/MD/Order/HOTO prorate by working days
+// (same rule as the MTD calculations, generalized to an arbitrary from/to range).
+function computeRangeTargetAchieved(cluster, stageKey, fromISO, toISO){
+  const [fy,fm,fd] = fromISO.split('-').map(Number);
+  const [ty,tm,td] = toISO.split('-').map(Number);
+  const targetKey = stageKey === 'order' ? 'hoto' : stageKey;
+  let target = 0, achieved = 0;
+  let y = fy, m = fm;
+  while(y < ty || (y === ty && m <= tm)){
+    const daysInMon = new Date(y, m, 0).getDate();
+    const segFrom = (y === fy && m === fm) ? fd : 1;
+    const segTo = (y === ty && m === tm) ? td : daysInMon;
+    const monthlyTarget = getTarget(cluster, m, targetKey);
+
+    let segTarget;
+    if(stageKey === 'ms' || stageKey === 'md' || stageKey === 'order' || stageKey === 'hoto'){
+      const denom = countWorkingDaysInMonth(y, m);
+      const segWorkingDays = countWorkingDaysInRange(y, m, segFrom, segTo);
+      segTarget = denom > 0 ? (monthlyTarget / denom * segWorkingDays) : 0;
+    } else {
+      segTarget = daysInMon > 0 ? (monthlyTarget / daysInMon * (segTo - segFrom + 1)) : 0;
+    }
+    target += segTarget;
+    for(let d = segFrom; d <= segTo; d++) achieved += getClusterDayVal(cluster, y, m, d, stageKey);
+
+    if(m === 12){ m = 1; y++; } else { m++; }
+  }
+  return {target, achieved};
+}
+
+function fmtSignedPct(v){ return v === null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }
+function fmtPP(v){ return v === null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(0) + 'pp'; }
+function signedPctCls(v){ return v === null ? '' : (v >= 0 ? 'pct-pos' : 'pct-neg'); }
+
+let TGT_BQL_MODE = 'month';
+let TGT_FUNNEL_MODE = 'month';
+
+function drawTargetsBQLCompare(){
+  const days = parseInt(document.getElementById('tgtBqlCompareDays').value, 10);
+  const scope = document.getElementById('tgtScopeSelBQL').value;
+  const ranges = computeDefaultCompareRanges(days);
+  const insightsEl = document.getElementById('tgtBqlInsights');
+  if(!ranges){
+    document.getElementById('tgtRegionContainerBQL').innerHTML = '<p class="page-sub">No lead data available yet.</p>';
+    insightsEl.style.display = 'none';
+    return;
+  }
+  document.getElementById('tgtBqlComparePill').textContent = 'P1: ' + ranges.p1From + ' → ' + ranges.p1To + '   vs   P2: ' + ranges.p2From + ' → ' + ranges.p2To;
+
+  const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
+  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
+
+  function computeRow(c){
+    const p1 = computeRangeTargetAchieved(c, 'bql', ranges.p1From, ranges.p1To);
+    const p2 = computeRangeTargetAchieved(c, 'bql', ranges.p2From, ranges.p2To);
+    const pct1 = p1.target > 0 ? ((p1.achieved - p1.target) / p1.target * 100) : null;
+    const pct2 = p2.target > 0 ? ((p2.achieved - p2.target) / p2.target * 100) : null;
+    const delta = (pct1 === null || pct2 === null) ? null : (pct2 - pct1);
+    return {c, p1, p2, pct1, pct2, delta};
+  }
+  const allRows = clusterList.map(computeRow);
+
+  const validRows = allRows.filter(r => r.delta !== null);
+  const sortedByDelta = validRows.slice().sort((a,b) => b.delta - a.delta);
+  const positives = sortedByDelta.filter(r => r.delta > 0.5).slice(0, 5);
+  const negatives = sortedByDelta.filter(r => r.delta < -0.5).slice(-5).reverse();
+
+  const totalP1Target = allRows.reduce((a,r) => a + r.p1.target, 0);
+  const totalP1Ach = allRows.reduce((a,r) => a + r.p1.achieved, 0);
+  const totalP2Target = allRows.reduce((a,r) => a + r.p2.target, 0);
+  const totalP2Ach = allRows.reduce((a,r) => a + r.p2.achieved, 0);
+  const totalPct1 = totalP1Target > 0 ? ((totalP1Ach - totalP1Target) / totalP1Target * 100) : null;
+  const totalPct2 = totalP2Target > 0 ? ((totalP2Ach - totalP2Target) / totalP2Target * 100) : null;
+
+  const posHtml = positives.length ? positives.map(r => '<li><b>' + r.c + '</b>: ' + r.pct1.toFixed(0) + '% → ' + r.pct2.toFixed(0) + '% (' + fmtPP(r.delta) + ')</li>').join('') : '<li>No cluster showed a clear improvement.</li>';
+  const negHtml = negatives.length ? negatives.map(r => '<li><b>' + r.c + '</b>: ' + r.pct1.toFixed(0) + '% → ' + r.pct2.toFixed(0) + '% (' + fmtPP(r.delta) + ')</li>').join('') : '<li>No cluster showed a clear decline.</li>';
+
+  insightsEl.style.display = 'block';
+  insightsEl.innerHTML =
+    '<div class="insights-summary">Overall BQL Tgt vs Ach — Period 1: <b>' + (totalPct1===null?'—':totalPct1.toFixed(0)+'%') + '</b> &nbsp;→&nbsp; Period 2: <b>' + (totalPct2===null?'—':totalPct2.toFixed(0)+'%') + '</b></div>' +
+    '<div class="insights-panel">' +
+      '<div class="insights-col pos"><h4>✅ What\'s Positive</h4><ul>' + posHtml + '</ul></div>' +
+      '<div class="insights-col neg"><h4>⚠️ What\'s Negative</h4><ul>' + negHtml + '</ul></div>' +
+    '</div>';
+
+  const headerRow = '<tr><th class="cluster-col">Cluster</th><th>P1 Target</th><th>P1 Achieved</th><th class="conv-head">P1 %</th>' +
+    '<th>P2 Target</th><th>P2 Achieved</th><th class="conv-head">P2 %</th><th class="conv-head">Δ (pp)</th></tr>';
+
+  document.getElementById('tgtRegionContainerBQL').innerHTML = regions.map(region => {
+    const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
+    const rows = allRows.filter(r => clustersInRegion.includes(r.c)).map(r => {
+      const deltaTxt = fmtPP(r.delta);
+      return '<tr><td class="cluster-name">' + r.c + '</td>' +
+        '<td>' + Math.round(r.p1.target).toLocaleString('en-IN') + '</td><td>' + r.p1.achieved.toLocaleString('en-IN') + '</td>' +
+        '<td class="conv-td ' + signedPctCls(r.pct1) + '">' + fmtSignedPct(r.pct1) + '</td>' +
+        '<td>' + Math.round(r.p2.target).toLocaleString('en-IN') + '</td><td>' + r.p2.achieved.toLocaleString('en-IN') + '</td>' +
+        '<td class="conv-td ' + signedPctCls(r.pct2) + '">' + fmtSignedPct(r.pct2) + '</td>' +
+        '<td class="' + signedPctCls(r.delta) + '">' + deltaTxt + '</td></tr>';
+    }).join('');
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
+}
+
+function drawTargetsFunnelCompare(){
+  const days = parseInt(document.getElementById('tgtFunnelCompareDays').value, 10);
+  const scope = document.getElementById('tgtScopeSelFunnel').value;
+  const ranges = computeDefaultCompareRanges(days);
+  const insightsEl = document.getElementById('tgtFunnelInsights');
+  if(!ranges){
+    document.getElementById('tgtRegionContainerFunnel').innerHTML = '<p class="page-sub">No lead data available yet.</p>';
+    insightsEl.style.display = 'none';
+    return;
+  }
+  document.getElementById('tgtFunnelComparePill').textContent = 'P1: ' + ranges.p1From + ' → ' + ranges.p1To + '   vs   P2: ' + ranges.p2From + ' → ' + ranges.p2To;
+
+  const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
+  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
+  const stages = [{key:'bql',label:'BQL'},{key:'lrm',label:'LRM'},{key:'ms',label:'MS'},{key:'md',label:'MD'},{key:'order',label:'BD'},{key:'hoto',label:'HOTO'}];
+
+  function computeClusterStage(c, stageKey){
+    const p1 = computeRangeTargetAchieved(c, stageKey, ranges.p1From, ranges.p1To);
+    const p2 = computeRangeTargetAchieved(c, stageKey, ranges.p2From, ranges.p2To);
+    const pct1 = p1.target > 0 ? ((p1.achieved - p1.target) / p1.target * 100) : null;
+    const pct2 = p2.target > 0 ? ((p2.achieved - p2.target) / p2.target * 100) : null;
+    return {p1, p2, pct1, pct2};
+  }
+
+  const stageTotals = stages.map(s => {
+    let t1=0, a1=0, t2=0, a2=0;
+    clusterList.forEach(c => {
+      const cs = computeClusterStage(c, s.key);
+      t1 += cs.p1.target; a1 += cs.p1.achieved; t2 += cs.p2.target; a2 += cs.p2.achieved;
+    });
+    const pct1 = t1 > 0 ? ((a1 - t1) / t1 * 100) : null;
+    const pct2 = t2 > 0 ? ((a2 - t2) / t2 * 100) : null;
+    const delta = (pct1 === null || pct2 === null) ? null : (pct2 - pct1);
+    return {label: s.label, pct1, pct2, delta};
+  });
+
+  const validStages = stageTotals.filter(s => s.delta !== null);
+  const sortedStages = validStages.slice().sort((a,b) => b.delta - a.delta);
+  const positives = sortedStages.filter(s => s.delta > 0.5);
+  const negatives = sortedStages.filter(s => s.delta < -0.5).reverse();
+
+  const posHtml = positives.length ? positives.map(s => '<li><b>' + s.label + '</b>: ' + s.pct1.toFixed(0) + '% → ' + s.pct2.toFixed(0) + '% (' + fmtPP(s.delta) + ')</li>').join('') : '<li>No stage showed a clear improvement.</li>';
+  const negHtml = negatives.length ? negatives.map(s => '<li><b>' + s.label + '</b>: ' + s.pct1.toFixed(0) + '% → ' + s.pct2.toFixed(0) + '% (' + fmtPP(s.delta) + ')</li>').join('') : '<li>No stage showed a clear decline.</li>';
+
+  insightsEl.style.display = 'block';
+  insightsEl.innerHTML =
+    '<div class="insights-panel">' +
+      '<div class="insights-col pos"><h4>✅ What\'s Positive</h4><ul>' + posHtml + '</ul></div>' +
+      '<div class="insights-col neg"><h4>⚠️ What\'s Negative</h4><ul>' + negHtml + '</ul></div>' +
+    '</div>';
+
+  const headerRow = '<tr><th class="cluster-col">Cluster</th>' +
+    stages.map(s => '<th class="conv-head">' + s.label + ' P1%</th><th class="conv-head">' + s.label + ' P2%</th>').join('') + '</tr>';
+
+  document.getElementById('tgtRegionContainerFunnel').innerHTML = regions.map(region => {
+    const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
+    const rows = clustersInRegion.map(c => {
+      const cells = stages.map(s => {
+        const cs = computeClusterStage(c, s.key);
+        return '<td class="' + signedPctCls(cs.pct1) + '">' + fmtSignedPct(cs.pct1) + '</td><td class="' + signedPctCls(cs.pct2) + '">' + fmtSignedPct(cs.pct2) + '</td>';
+      }).join('');
+      return '<tr><td class="cluster-name">' + c + '</td>' + cells + '</tr>';
+    }).join('');
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
+}
+
 function initTargetsPage(){
   if(!TARGETS_LOADED || !CHANNEL_DATA_LOADED) return;
   if(!TARGETS_PAGE_INIT){
@@ -1319,9 +1569,35 @@ function initTargetsPage(){
     }
 
     msB.addEventListener('change', drawTargetsBQL);
-    document.getElementById('tgtScopeSelBQL').addEventListener('change', drawTargetsBQL);
+    document.getElementById('tgtScopeSelBQL').addEventListener('change', () => { TGT_BQL_MODE === 'month' ? drawTargetsBQL() : drawTargetsBQLCompare(); });
     msF.addEventListener('change', drawTargetsFunnel);
-    document.getElementById('tgtScopeSelFunnel').addEventListener('change', drawTargetsFunnel);
+    document.getElementById('tgtScopeSelFunnel').addEventListener('change', () => { TGT_FUNNEL_MODE === 'month' ? drawTargetsFunnel() : drawTargetsFunnelCompare(); });
+
+    document.getElementById('tgtBqlCompareDays').addEventListener('change', drawTargetsBQLCompare);
+    document.getElementById('tgtFunnelCompareDays').addEventListener('change', drawTargetsFunnelCompare);
+
+    document.querySelectorAll('#tgtBqlModeToggle .toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#tgtBqlModeToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        TGT_BQL_MODE = btn.dataset.mode;
+        document.getElementById('tgtBqlMonthControls').style.display = TGT_BQL_MODE === 'month' ? 'flex' : 'none';
+        document.getElementById('tgtBqlCompareControls').style.display = TGT_BQL_MODE === 'compare' ? 'flex' : 'none';
+        document.getElementById('tgtBqlInsights').style.display = TGT_BQL_MODE === 'compare' ? 'block' : 'none';
+        TGT_BQL_MODE === 'month' ? drawTargetsBQL() : drawTargetsBQLCompare();
+      });
+    });
+    document.querySelectorAll('#tgtFunnelModeToggle .toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#tgtFunnelModeToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        TGT_FUNNEL_MODE = btn.dataset.mode;
+        document.getElementById('tgtFunnelMonthControls').style.display = TGT_FUNNEL_MODE === 'month' ? 'flex' : 'none';
+        document.getElementById('tgtFunnelCompareControls').style.display = TGT_FUNNEL_MODE === 'compare' ? 'flex' : 'none';
+        document.getElementById('tgtFunnelInsights').style.display = TGT_FUNNEL_MODE === 'compare' ? 'block' : 'none';
+        TGT_FUNNEL_MODE === 'month' ? drawTargetsFunnel() : drawTargetsFunnelCompare();
+      });
+    });
 
     document.querySelectorAll('#targetsViewToggle .toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
