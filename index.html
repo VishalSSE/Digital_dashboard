@@ -271,6 +271,12 @@
       <div class="side-item" id="nav-cohort" onclick="showPage('cohort')">BQL Cohort Funnel</div>
       <div class="side-item" id="nav-cpbql" onclick="showPage('cpbql')">CPBQL</div>
     </div>
+    <div class="side-section">
+      <div class="side-label">LQI</div>
+      <div class="side-item" id="nav-lqimtd" onclick="showPage('lqimtd')">MTD Score</div>
+      <div class="side-item" id="nav-lqiband" onclick="showPage('lqiband')">Band Distribution</div>
+      <div class="side-item" id="nav-lqichan" onclick="showPage('lqichan')">Channel-wise Score</div>
+    </div>
   </div>
 
   <div class="main">
@@ -460,6 +466,77 @@
       </div>
       <div id="cpbqlTotalRow" class="india-summary"></div>
       <div id="cpbqlRegionContainer"></div>
+    </div>
+  </div>
+
+  <div id="page-lqimtd" class="page-view" style="display:none;">
+    <div class="page-title">LQI — MTD Score</div>
+    <div class="page-sub">Lead Quality Index (average heuristic score per lead) · Aug is a fixed benchmark from the Sept Targets sheet, Sept is live and day-by-day.</div>
+
+    <div class="note" id="lqiLoadStatus">Connecting to live sheets…</div>
+
+    <div class="controls" style="margin-bottom:18px;">
+      <div><label>Sept MTD Up To</label><select id="lqiMtdAsOfDay"></select></div>
+      <div class="pill" id="lqiMtdPill"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Average LQI Score <span class="section-tag">Aug Full Month vs Sept MTD, plus day-by-day</span></div>
+        <div class="section-desc">Score = sum of heuristic_score ÷ number of leads, for that cluster and period. Aug Full Month is a fixed reference value; everything else is computed live.</div>
+      </div>
+      <div id="lqiMtdRegionContainer"></div>
+    </div>
+  </div>
+
+  <div id="page-lqiband" class="page-view" style="display:none;">
+    <div class="page-title">LQI — Band Distribution</div>
+    <div class="page-sub">Leads bucketed into score bands (0-2, 2-5, 5-7, 7-9, 9-10), Aug vs Sept, for the day range you pick.</div>
+
+    <div class="note" id="lqiBandLoadStatus">Connecting to live sheets…</div>
+
+    <div class="controls" style="margin-bottom:18px;">
+      <div><label>Channel</label><select id="lqiBandChanSel"><option value="__all__">Overall</option></select></div>
+      <div><label>Day Range — From</label><select id="lqiBandFromDay"></select></div>
+      <div><label>To</label><select id="lqiBandToDay"></select></div>
+      <div class="pill" id="lqiBandPill"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Band Counts <span class="section-tag">Absolute</span></div>
+        <div class="section-desc">Number of leads in each score band, for the selected day range, per cluster.</div>
+      </div>
+      <div id="lqiBandCountContainer"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Band Contribution % <span class="section-tag">Sept share vs Aug share</span></div>
+        <div class="section-desc">Share of that period's leads in each band. Highlighted red when the low-quality bands (0-2, 2-5) grew share, or the high-quality bands (7-9, 9-10) shrank share — i.e. quality mix got worse; green for the opposite.</div>
+      </div>
+      <div id="lqiBandPctContainer"></div>
+    </div>
+  </div>
+
+  <div id="page-lqichan" class="page-view" style="display:none;">
+    <div class="page-title">LQI — Channel-wise Score</div>
+    <div class="page-sub">Average LQI score by channel, for one city (or India Non-Expansion / India Expansion) at a time.</div>
+
+    <div class="note" id="lqiChanLoadStatus">Connecting to live sheets…</div>
+
+    <div class="controls" style="margin-bottom:18px;">
+      <div><label>Select City</label><select id="lqiChanCitySel"></select></div>
+      <div><label>Sept MTD Up To</label><select id="lqiChanAsOfDay"></select></div>
+      <div class="pill" id="lqiChanPill"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">Channel-wise Average Score <span class="section-tag">Aug Full Month vs Sept MTD, plus day-by-day</span></div>
+        <div class="section-desc">Channels shown are whatever Marketing Channel values actually appear in the live LQI sheets for this city.</div>
+      </div>
+      <div id="lqiChanContainer"></div>
     </div>
   </div>
 
@@ -729,11 +806,15 @@ function showPage(id){
   document.getElementById('nav-cohort').classList.toggle('active', id === 'cohort');
   document.getElementById('nav-targets').classList.toggle('active', id === 'targets');
   document.getElementById('nav-cpbql').classList.toggle('active', id === 'cpbql');
+  document.getElementById('nav-lqimtd').classList.toggle('active', id === 'lqimtd');
+  document.getElementById('nav-lqiband').classList.toggle('active', id === 'lqiband');
+  document.getElementById('nav-lqichan').classList.toggle('active', id === 'lqichan');
   if(id === 'mom' && !MOM_DATA_LOADED && !MOM_LOAD_ERROR) ensureAccessKey(() => loadMomFunnelData());
   if((id === 'channel' || id === 'cohort' || id === 'targets' || id === 'cpbql') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) ensureAccessKey(() => loadChannelData());
   if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) ensureAccessKey(() => loadTargetsData());
   if(id === 'targets') updateTargetsStatus();
   if(id === 'cpbql' && !SPENDS_LOADED && !SPENDS_LOAD_ERROR) ensureAccessKey(() => loadSpendsData());
+  if((id === 'lqimtd' || id === 'lqiband' || id === 'lqichan') && !LQI_LOADED && !LQI_LOAD_ERROR) ensureAccessKey(() => loadLqiData());
 }
 
 // =====================================================================
