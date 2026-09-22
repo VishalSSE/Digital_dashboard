@@ -634,110 +634,43 @@
   </div>
 
   <div id="page-targets" class="page-view" style="display:none;">
-    <div class="page-title">Target vs Achievement</div>
-    <div class="page-sub">BQL targets Jan–Dec 2026 (live) vs achievement · cohort basis · unique leads only</div>
+    <div class="page-title">BQL Target vs Achievement</div>
+    <div class="page-sub">September 2026 targets · MTD vs LMTD (same day-of-month, last month) · cohort basis · unique leads only</div>
 
     <div class="note" id="targetsLoadStatus">Connecting to live sheets…</div>
 
     <div class="controls" style="margin-bottom:18px;">
-      <div><label>View</label>
-        <div class="toggle-group" id="targetsViewToggle">
-          <button type="button" class="toggle-btn active" data-view="bql">BQL Target vs Achievement</button>
-          <button type="button" class="toggle-btn" data-view="funnel">Funnel Target vs Achievement</button>
-        </div>
+      <div><label>As of Day</label><select id="tgtAsOfDay"></select></div>
+      <div><label>Scope</label>
+        <select id="tgtScopeSel">
+          <option value="overall">Overall</option>
+          <option value="non-expansion">India Non-Expansion</option>
+          <option value="expansion">India Expansion</option>
+        </select>
       </div>
+      <div><label>Channel</label>
+        <select id="tgtChannelSel">
+          <option value="__all__">All Channels</option>
+          <option value="Google - Search">Google - Search</option>
+          <option value="Google - PMax">Google - PMax</option>
+          <option value="Google - Demand Gen">Google - Demand Gen</option>
+          <option value="Meta Form">Meta Form</option>
+          <option value="Meta Web">Meta Web</option>
+        </select>
+      </div>
+      <div class="pill" id="tgtPill"></div>
     </div>
 
-    <div id="viewTargetsBQL">
-      <div class="section-card">
-        <div class="section-head">
-          <div class="section-title">BQL Target vs Achievement <span class="section-tag">Day-on-Day</span></div>
-          <div class="section-desc">Monthly (or MTD, for the running month) target vs achieved, daily target, and the day-on-day trail for the month.</div>
-        </div>
-        <div class="controls">
-          <div><label>View</label>
-            <div class="toggle-group" id="tgtBqlModeToggle">
-              <button type="button" class="toggle-btn active" data-mode="month">Single Month</button>
-              <button type="button" class="toggle-btn" data-mode="compare">Compare Periods</button>
-            </div>
-          </div>
-          <div><label>Scope</label>
-            <select id="tgtScopeSelBQL">
-              <option value="non-expansion">India Non-Expansion</option>
-              <option value="expansion">India Expansion</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="controls" id="tgtBqlMonthControls">
-          <div><label>Month</label><select id="tgtMonthSelBQL"></select></div>
-          <div class="pill" id="tgtPillBQL"></div>
-        </div>
-
-        <div class="controls" id="tgtBqlCompareControls" style="display:none;">
-          <div><label>Compare Last</label>
-            <select id="tgtBqlCompareDays">
-              <option value="3">3 Days</option>
-              <option value="5">5 Days</option>
-              <option value="7" selected>7 Days</option>
-              <option value="10">10 Days</option>
-              <option value="15">15 Days</option>
-              <option value="30">30 Days</option>
-            </select>
-          </div>
-          <div class="pill" id="tgtBqlComparePill"></div>
-        </div>
-
-        <div id="tgtBqlInsights" style="display:none;"></div>
-        <div id="tgtRegionContainerBQL"></div>
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">BQL — MTD vs LMTD <span class="section-tag" id="tgtSectionTag">Sep 2026</span></div>
+        <div class="section-desc">MTD Target and MTD Achieved are through the selected day of September; LMTD Achieved is the same day-range in August, for a fair day-matched comparison.</div>
       </div>
-    </div>
-
-    <div id="viewTargetsFunnel" style="display:none;">
-      <div class="section-card">
-        <div class="section-head">
-          <div class="section-title">Funnel Target vs Achievement <span class="section-tag">All 6 Stages</span></div>
-          <div class="section-desc">Monthly (or MTD, for the running month) target vs achieved for BQL → Lead to LRM → First MS → First MD → Booking Done → HoTo. BD target mirrors HOTO's target (no separate BD target exists in the sheet).</div>
-        </div>
-        <div class="controls">
-          <div><label>View</label>
-            <div class="toggle-group" id="tgtFunnelModeToggle">
-              <button type="button" class="toggle-btn active" data-mode="month">Single Month</button>
-              <button type="button" class="toggle-btn" data-mode="compare">Compare Periods</button>
-            </div>
-          </div>
-          <div><label>Scope</label>
-            <select id="tgtScopeSelFunnel">
-              <option value="non-expansion">India Non-Expansion</option>
-              <option value="expansion">India Expansion</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="controls" id="tgtFunnelMonthControls">
-          <div><label>Month</label><select id="tgtMonthSelFunnel"></select></div>
-          <div class="pill" id="tgtPillFunnel"></div>
-        </div>
-
-        <div class="controls" id="tgtFunnelCompareControls" style="display:none;">
-          <div><label>Compare Last</label>
-            <select id="tgtFunnelCompareDays">
-              <option value="3">3 Days</option>
-              <option value="5">5 Days</option>
-              <option value="7" selected>7 Days</option>
-              <option value="10">10 Days</option>
-              <option value="15">15 Days</option>
-              <option value="30">30 Days</option>
-            </select>
-          </div>
-          <div class="pill" id="tgtFunnelComparePill"></div>
-        </div>
-
-        <div id="tgtFunnelInsights" style="display:none;"></div>
-        <div id="tgtRegionContainerFunnel"></div>
-      </div>
+      <div id="tgtTotalRow" class="india-summary"></div>
+      <div id="tgtRegionContainer"></div>
     </div>
   </div>
+
   </div>
 </div>
 
@@ -1404,7 +1337,7 @@ function updateTargetsStatus(){
 }
 
 function maybeInitTargetsPage(){
-  if(TARGETS_LOADED && CHANNEL_DATA_LOADED) initTargetsPage();
+  if(CHANNEL_DATA_LOADED) initTargetsPage();
 }
 
 function isCurrentMonth(year, month){
@@ -1473,472 +1406,190 @@ function computeMtdTarget(stageKey, year, month, monthlyTarget, completedDays){
   return daysInMon > 0 ? (monthlyTarget / daysInMon * completedDays) : 0;
 }
 
-function getLatestLeadDate(){
-  let maxDate = null;
-  RAW_LEADS.forEach(l => { if(!maxDate || l.dateObj > maxDate) maxDate = l.dateObj; });
-  return maxDate;
-}
-function computeDefaultCompareRanges(days){
-  const latest = getLatestLeadDate();
-  if(!latest) return null;
-  const p2To = isoDate(latest);
-  const p2From = addDaysISO(p2To, -(days - 1));
-  const p1To = addDaysISO(p2From, -1);
-  const p1From = addDaysISO(p1To, -(days - 1));
-  return {p1From, p1To, p2From, p2To};
-}
-// Prorated target + actual achieved for ANY date range (can span multiple months) —
-// BQL/LRM prorate by calendar days, MS/MD/Order/HOTO prorate by working days
-// (same rule as the MTD calculations, generalized to an arbitrary from/to range).
-function computeRangeTargetAchieved(cluster, stageKey, fromISO, toISO){
-  const [fy,fm,fd] = fromISO.split('-').map(Number);
-  const [ty,tm,td] = toISO.split('-').map(Number);
-  const targetKey = stageKey === 'order' ? 'hoto' : stageKey;
-  let target = 0, achieved = 0;
-  let y = fy, m = fm;
-  while(y < ty || (y === ty && m <= tm)){
-    const daysInMon = new Date(y, m, 0).getDate();
-    const segFrom = (y === fy && m === fm) ? fd : 1;
-    const segTo = (y === ty && m === tm) ? td : daysInMon;
-    const monthlyTarget = getTarget(cluster, m, targetKey);
-
-    let segTarget;
-    if(stageKey === 'ms' || stageKey === 'md' || stageKey === 'order' || stageKey === 'hoto'){
-      const denom = countWorkingDaysInMonth(y, m);
-      const segWorkingDays = countWorkingDaysInRange(y, m, segFrom, segTo);
-      segTarget = denom > 0 ? (monthlyTarget / denom * segWorkingDays) : 0;
-    } else {
-      segTarget = daysInMon > 0 ? (monthlyTarget / daysInMon * (segTo - segFrom + 1)) : 0;
-    }
-    target += segTarget;
-    for(let d = segFrom; d <= segTo; d++) achieved += getClusterDayVal(cluster, y, m, d, stageKey);
-
-    if(m === 12){ m = 1; y++; } else { m++; }
-  }
-  return {target, achieved};
-}
-
-function fmtSignedPct(v){ return v === null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }
 function fmtPP(v){ return v === null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(0) + 'pp'; }
+
 function signedPctCls(v){ return v === null ? '' : (v >= 0 ? 'pct-pos' : 'pct-neg'); }
+function fmtSignedPct(v){ return v === null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }
 
-let TGT_BQL_MODE = 'month';
-let TGT_FUNNEL_MODE = 'month';
+// =====================================================================
+// September 2026 BQL Target vs Achievement (new simplified structure)
+// Data embedded directly from Project_DB_1_0_-_Sep_Targets.csv (36 clusters).
+// Stage target columns confirmed: A=Cluster, B=BQL, C=LRM, D=MS, E=MD, F=ORDER.
+// Channel mix % confirmed: H=Cluster, I=Meta Web, J=Meta Form, K=G-Search, L=G-Demand Gen, M=G-PMax.
+// =====================================================================
+const SEPT_TARGETS = {
+  'Ahmedabad': {bql:2930, lrm:1166, ms:516, md:453, order:84},
+  'Nagpur': {bql:1780, lrm:1040, ms:779, md:680, order:148},
+  'Amravati': {bql:554, lrm:263, ms:163, md:150, order:26},
+  'Aurangabad': {bql:965, lrm:518, ms:337, md:294, order:33},
+  'Nashik': {bql:1150, lrm:572, ms:365, md:319, order:70},
+  'Pune': {bql:2990, lrm:1635, ms:1077, md:904, order:228},
+  'Kolhapur': {bql:580, lrm:276, ms:140, md:129, order:34},
+  'Jalgaon': {bql:485, lrm:232, ms:116, md:84, order:21},
+  'Solapur': {bql:636, lrm:290, ms:165, md:78, order:8},
+  'Bhopal': {bql:1210, lrm:686, ms:384, md:353, order:32},
+  'Gwalior': {bql:900, lrm:485, ms:281, md:243, order:35},
+  'Indore': {bql:1515, lrm:795, ms:474, md:386, order:61},
+  'Jabalpur': {bql:630, lrm:288, ms:162, md:138, order:38},
+  'Jaipur': {bql:3960, lrm:2297, ms:1046, md:940, order:160},
+  'Delhi': {bql:4899, lrm:2762, ms:686, md:620, order:112},
+  'Gurgaon': {bql:1545, lrm:791, ms:283, md:225, order:38},
+  'Ghaziabad': {bql:1623, lrm:903, ms:379, md:322, order:74},
+  'Noida': {bql:1368, lrm:650, ms:226, md:183, order:41},
+  'Agra': {bql:1854, lrm:971, ms:466, md:298, order:54},
+  'Kanpur': {bql:1961, lrm:1030, ms:533, md:394, order:91},
+  'Lucknow': {bql:3376, lrm:2016, ms:1048, md:889, order:183},
+  'Varanasi': {bql:976, lrm:466, ms:266, md:199, order:44},
+  'Hyderabad': {bql:1865, lrm:1045, ms:542, md:454, order:81},
+  'Bangalore': {bql:2591, lrm:1205, ms:611, md:515, order:104},
+  'Chennai': {bql:2100, lrm:1250, ms:835, md:725, order:130},
+  'Coimbatore': {bql:400, lrm:230, ms:138, md:89, order:18},
+  'Bareilly': {bql:700, lrm:315, ms:189, md:123, order:28},
+  'Meerut': {bql:1620, lrm:972, ms:467, md:350, order:42},
+  'Vijayawada': {bql:510, lrm:245, ms:98, md:49, order:9},
+  'Salem/Erode': {bql:350, lrm:175, ms:114, md:80, order:14},
+  'Kota': {bql:851, lrm:553, ms:304, md:213, order:26},
+  'Visakhapatnam': {bql:320, lrm:176, ms:84, md:59, order:11},
+  'Jodhpur': {bql:525, lrm:341, ms:171, md:128, order:19},
+  'Raipur': {bql:300, lrm:150, ms:75, md:56, order:11},
+  'Trichy': {bql:200, lrm:100, ms:50, md:38, order:5},
+  'Prayagraj': {bql:180, lrm:90, ms:45, md:34, order:5}
+};
+const SEPT_CHANNEL_MIX = {
+  'India': {'Meta Web':0.1900, 'Meta Form':0.4000, 'Google - Search':0.2300, 'Google - Demand Gen':0.1100, 'Google - PMax':0.0700},
+  'Agra': {'Meta Web':0.5000, 'Meta Form':0.0000, 'Google - Search':0.3500, 'Google - Demand Gen':0.1500, 'Google - PMax':0.0000},
+  'Ahmedabad': {'Meta Web':0.1500, 'Meta Form':0.4500, 'Google - Search':0.2000, 'Google - Demand Gen':0.1000, 'Google - PMax':0.1000},
+  'Amravati': {'Meta Web':0.1000, 'Meta Form':0.5500, 'Google - Search':0.1200, 'Google - Demand Gen':0.1500, 'Google - PMax':0.0800},
+  'Aurangabad': {'Meta Web':0.1200, 'Meta Form':0.6000, 'Google - Search':0.1500, 'Google - Demand Gen':0.0800, 'Google - PMax':0.0500},
+  'Bangalore': {'Meta Web':0.1200, 'Meta Form':0.3500, 'Google - Search':0.2800, 'Google - Demand Gen':0.1000, 'Google - PMax':0.1500},
+  'Bhopal': {'Meta Web':0.2000, 'Meta Form':0.3500, 'Google - Search':0.2500, 'Google - Demand Gen':0.1000, 'Google - PMax':0.1000},
+  'Chennai': {'Meta Web':0.4500, 'Meta Form':0.0900, 'Google - Search':0.4000, 'Google - Demand Gen':0.0500, 'Google - PMax':0.0900},
+  'Coimbatore': {'Meta Web':0.2200, 'Meta Form':0.2500, 'Google - Search':0.3000, 'Google - Demand Gen':0.1800, 'Google - PMax':0.0500},
+  'Delhi': {'Meta Web':0.3500, 'Meta Form':0.2000, 'Google - Search':0.2500, 'Google - Demand Gen':0.1000, 'Google - PMax':0.1000},
+  'Ghaziabad': {'Meta Web':0.2500, 'Meta Form':0.2500, 'Google - Search':0.2500, 'Google - Demand Gen':0.2000, 'Google - PMax':0.0500},
+  'Gurgaon': {'Meta Web':0.2000, 'Meta Form':0.4000, 'Google - Search':0.3000, 'Google - Demand Gen':0.0500, 'Google - PMax':0.0500},
+  'Gwalior': {'Meta Web':0.1000, 'Meta Form':0.4500, 'Google - Search':0.2500, 'Google - Demand Gen':0.1500, 'Google - PMax':0.0500},
+  'Hyderabad': {'Meta Web':0.1600, 'Meta Form':0.3500, 'Google - Search':0.3000, 'Google - Demand Gen':0.1400, 'Google - PMax':0.0500},
+  'Indore': {'Meta Web':0.1000, 'Meta Form':0.5000, 'Google - Search':0.2500, 'Google - Demand Gen':0.1000, 'Google - PMax':0.0500},
+  'Jabalpur': {'Meta Web':0.2000, 'Meta Form':0.4300, 'Google - Search':0.2500, 'Google - Demand Gen':0.0600, 'Google - PMax':0.0600},
+  'Jaipur': {'Meta Web':0.1500, 'Meta Form':0.4000, 'Google - Search':0.2500, 'Google - Demand Gen':0.1500, 'Google - PMax':0.0500},
+  'Jalgaon': {'Meta Web':0.0800, 'Meta Form':0.4500, 'Google - Search':0.2200, 'Google - Demand Gen':0.1500, 'Google - PMax':0.1000},
+  'Kanpur': {'Meta Web':0.1000, 'Meta Form':0.4500, 'Google - Search':0.2500, 'Google - Demand Gen':0.1500, 'Google - PMax':0.0500},
+  'Kolhapur': {'Meta Web':0.0500, 'Meta Form':0.7000, 'Google - Search':0.1000, 'Google - Demand Gen':0.1000, 'Google - PMax':0.0500},
+  'Lucknow': {'Meta Web':0.3000, 'Meta Form':0.2500, 'Google - Search':0.2500, 'Google - Demand Gen':0.1500, 'Google - PMax':0.0500},
+  'Nagpur': {'Meta Web':0.2000, 'Meta Form':0.3000, 'Google - Search':0.2500, 'Google - Demand Gen':0.1500, 'Google - PMax':0.1000},
+  'Nashik': {'Meta Web':0.2000, 'Meta Form':0.4500, 'Google - Search':0.1500, 'Google - Demand Gen':0.1000, 'Google - PMax':0.1000},
+  'Noida': {'Meta Web':0.2000, 'Meta Form':0.4500, 'Google - Search':0.2000, 'Google - Demand Gen':0.0800, 'Google - PMax':0.0700},
+  'Pune': {'Meta Web':0.2000, 'Meta Form':0.4500, 'Google - Search':0.2000, 'Google - Demand Gen':0.0500, 'Google - PMax':0.1000},
+  'Solapur': {'Meta Web':0.1200, 'Meta Form':0.6000, 'Google - Search':0.1000, 'Google - Demand Gen':0.0800, 'Google - PMax':0.1000},
+  'Varanasi': {'Meta Web':0.2000, 'Meta Form':0.4200, 'Google - Search':0.1800, 'Google - Demand Gen':0.1000, 'Google - PMax':0.1000},
+  'Bareilly': {'Meta Web':0.3000, 'Meta Form':0.2500, 'Google - Search':0.3000, 'Google - Demand Gen':0.0500, 'Google - PMax':0.1000},
+  'Meerut': {'Meta Web':0.4500, 'Meta Form':0.1000, 'Google - Search':0.4000, 'Google - Demand Gen':0.0500, 'Google - PMax':0.0000},
+  'Vijayawada': {'Meta Web':0.2000, 'Meta Form':0.3000, 'Google - Search':0.2000, 'Google - Demand Gen':0.0500, 'Google - PMax':0.2500},
+  'Salem/Erode': {'Meta Web':0.4000, 'Meta Form':0.2500, 'Google - Search':0.3000, 'Google - Demand Gen':0.0500, 'Google - PMax':0.0000},
+  'Kota': {'Meta Web':0.5000, 'Meta Form':0.0500, 'Google - Search':0.3500, 'Google - Demand Gen':0.0500, 'Google - PMax':0.0500},
+  'Visakhapatnam': {'Meta Web':0.4500, 'Meta Form':0.1500, 'Google - Search':0.3000, 'Google - Demand Gen':0.0500, 'Google - PMax':0.0500}
+};
+// Clusters present in the Sept sheet but not in the dashboard's existing roster
+// (new P0 expansion cities, or a merged cluster) — bucketed by best judgement; flagged for confirmation.
+const SEPT_NEW_CLUSTERS_EXPANSION = ['Prayagraj','Raipur','Trichy','Salem/Erode'];
+const SEPT_ALL_CLUSTERS = Object.keys(SEPT_TARGETS);
+const SEPT_NON_EXPANSION = SEPT_ALL_CLUSTERS.filter(c => NON_EXPANSION.includes(c));
+const SEPT_EXPANSION = SEPT_ALL_CLUSTERS.filter(c => EXPANSION.includes(c) || SEPT_NEW_CLUSTERS_EXPANSION.includes(c));
 
-function drawTargetsBQLCompare(){
-  const days = parseInt(document.getElementById('tgtBqlCompareDays').value, 10);
-  const scope = document.getElementById('tgtScopeSelBQL').value;
-  const ranges = computeDefaultCompareRanges(days);
-  const insightsEl = document.getElementById('tgtBqlInsights');
-  if(!ranges){
-    document.getElementById('tgtRegionContainerBQL').innerHTML = '<p class="page-sub">No lead data available yet.</p>';
-    insightsEl.style.display = 'none';
-    return;
-  }
-  document.getElementById('tgtBqlComparePill').textContent = 'P1: ' + ranges.p1From + ' → ' + ranges.p1To + '   vs   P2: ' + ranges.p2From + ' → ' + ranges.p2To;
+const SEPT_YEAR = 2026, SEPT_MONTH = 9, AUG_MONTH = 8;
 
-  const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
-  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
-
-  function computeRow(c){
-    const p1 = computeRangeTargetAchieved(c, 'bql', ranges.p1From, ranges.p1To);
-    const p2 = computeRangeTargetAchieved(c, 'bql', ranges.p2From, ranges.p2To);
-    const pct1 = p1.target > 0 ? ((p1.achieved - p1.target) / p1.target * 100) : null;
-    const pct2 = p2.target > 0 ? ((p2.achieved - p2.target) / p2.target * 100) : null;
-    const delta = (pct1 === null || pct2 === null) ? null : (pct2 - pct1);
-    return {c, p1, p2, pct1, pct2, delta};
-  }
-  const allRows = clusterList.map(computeRow);
-
-  const validRows = allRows.filter(r => r.delta !== null);
-  const sortedByDelta = validRows.slice().sort((a,b) => b.delta - a.delta);
-  const positives = sortedByDelta.filter(r => r.delta > 0.5).slice(0, 5);
-  const negatives = sortedByDelta.filter(r => r.delta < -0.5).slice(-5).reverse();
-
-  const totalP1Target = allRows.reduce((a,r) => a + r.p1.target, 0);
-  const totalP1Ach = allRows.reduce((a,r) => a + r.p1.achieved, 0);
-  const totalP2Target = allRows.reduce((a,r) => a + r.p2.target, 0);
-  const totalP2Ach = allRows.reduce((a,r) => a + r.p2.achieved, 0);
-  const totalPct1 = totalP1Target > 0 ? ((totalP1Ach - totalP1Target) / totalP1Target * 100) : null;
-  const totalPct2 = totalP2Target > 0 ? ((totalP2Ach - totalP2Target) / totalP2Target * 100) : null;
-
-  const posHtml = positives.length ? positives.map(r => '<li><b>' + r.c + '</b>: ' + r.pct1.toFixed(0) + '% → ' + r.pct2.toFixed(0) + '% (' + fmtPP(r.delta) + ')</li>').join('') : '<li>No cluster showed a clear improvement.</li>';
-  const negHtml = negatives.length ? negatives.map(r => '<li><b>' + r.c + '</b>: ' + r.pct1.toFixed(0) + '% → ' + r.pct2.toFixed(0) + '% (' + fmtPP(r.delta) + ')</li>').join('') : '<li>No cluster showed a clear decline.</li>';
-
-  insightsEl.style.display = 'block';
-  insightsEl.innerHTML =
-    '<div class="insights-summary">Overall BQL Tgt vs Ach — Period 1: <b>' + (totalPct1===null?'—':totalPct1.toFixed(0)+'%') + '</b> &nbsp;→&nbsp; Period 2: <b>' + (totalPct2===null?'—':totalPct2.toFixed(0)+'%') + '</b></div>' +
-    '<div class="insights-panel">' +
-      '<div class="insights-col pos"><h4>✅ What\'s Positive</h4><ul>' + posHtml + '</ul></div>' +
-      '<div class="insights-col neg"><h4>⚠️ What\'s Negative</h4><ul>' + negHtml + '</ul></div>' +
-    '</div>';
-
-  const headerRow = '<tr><th class="cluster-col">Cluster</th><th>P1 Target</th><th>P1 Achieved</th><th class="conv-head">P1 %</th>' +
-    '<th>P2 Target</th><th>P2 Achieved</th><th class="conv-head">P2 %</th><th class="conv-head">Δ (pp)</th></tr>';
-
-  document.getElementById('tgtRegionContainerBQL').innerHTML = regions.map(region => {
-    const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
-    const rows = allRows.filter(r => clustersInRegion.includes(r.c)).map(r => {
-      const deltaTxt = fmtPP(r.delta);
-      return '<tr><td class="cluster-name">' + r.c + '</td>' +
-        '<td>' + Math.round(r.p1.target).toLocaleString('en-IN') + '</td><td>' + r.p1.achieved.toLocaleString('en-IN') + '</td>' +
-        '<td class="conv-td ' + signedPctCls(r.pct1) + '">' + fmtSignedPct(r.pct1) + '</td>' +
-        '<td>' + Math.round(r.p2.target).toLocaleString('en-IN') + '</td><td>' + r.p2.achieved.toLocaleString('en-IN') + '</td>' +
-        '<td class="conv-td ' + signedPctCls(r.pct2) + '">' + fmtSignedPct(r.pct2) + '</td>' +
-        '<td class="' + signedPctCls(r.delta) + '">' + deltaTxt + '</td></tr>';
-    }).join('');
-    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
-      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
-      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
-  }).join('');
-}
-
-function drawTargetsFunnelCompare(){
-  const days = parseInt(document.getElementById('tgtFunnelCompareDays').value, 10);
-  const scope = document.getElementById('tgtScopeSelFunnel').value;
-  const ranges = computeDefaultCompareRanges(days);
-  const insightsEl = document.getElementById('tgtFunnelInsights');
-  if(!ranges){
-    document.getElementById('tgtRegionContainerFunnel').innerHTML = '<p class="page-sub">No lead data available yet.</p>';
-    insightsEl.style.display = 'none';
-    return;
-  }
-  document.getElementById('tgtFunnelComparePill').textContent = 'P1: ' + ranges.p1From + ' → ' + ranges.p1To + '   vs   P2: ' + ranges.p2From + ' → ' + ranges.p2To;
-
-  const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
-  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
-  const stages = [{key:'bql',label:'BQL'},{key:'lrm',label:'LRM'},{key:'ms',label:'MS'},{key:'md',label:'MD'},{key:'order',label:'BD'},{key:'hoto',label:'HOTO'}];
-
-  function computeClusterStage(c, stageKey){
-    const p1 = computeRangeTargetAchieved(c, stageKey, ranges.p1From, ranges.p1To);
-    const p2 = computeRangeTargetAchieved(c, stageKey, ranges.p2From, ranges.p2To);
-    const pct1 = p1.target > 0 ? ((p1.achieved - p1.target) / p1.target * 100) : null;
-    const pct2 = p2.target > 0 ? ((p2.achieved - p2.target) / p2.target * 100) : null;
-    return {p1, p2, pct1, pct2};
-  }
-
-  const stageTotals = stages.map(s => {
-    let t1=0, a1=0, t2=0, a2=0;
-    clusterList.forEach(c => {
-      const cs = computeClusterStage(c, s.key);
-      t1 += cs.p1.target; a1 += cs.p1.achieved; t2 += cs.p2.target; a2 += cs.p2.achieved;
-    });
-    const pct1 = t1 > 0 ? ((a1 - t1) / t1 * 100) : null;
-    const pct2 = t2 > 0 ? ((a2 - t2) / t2 * 100) : null;
-    const delta = (pct1 === null || pct2 === null) ? null : (pct2 - pct1);
-    return {label: s.label, pct1, pct2, delta};
-  });
-
-  const validStages = stageTotals.filter(s => s.delta !== null);
-  const sortedStages = validStages.slice().sort((a,b) => b.delta - a.delta);
-  const positives = sortedStages.filter(s => s.delta > 0.5);
-  const negatives = sortedStages.filter(s => s.delta < -0.5).reverse();
-
-  const posHtml = positives.length ? positives.map(s => '<li><b>' + s.label + '</b>: ' + s.pct1.toFixed(0) + '% → ' + s.pct2.toFixed(0) + '% (' + fmtPP(s.delta) + ')</li>').join('') : '<li>No stage showed a clear improvement.</li>';
-  const negHtml = negatives.length ? negatives.map(s => '<li><b>' + s.label + '</b>: ' + s.pct1.toFixed(0) + '% → ' + s.pct2.toFixed(0) + '% (' + fmtPP(s.delta) + ')</li>').join('') : '<li>No stage showed a clear decline.</li>';
-
-  insightsEl.style.display = 'block';
-  insightsEl.innerHTML =
-    '<div class="insights-panel">' +
-      '<div class="insights-col pos"><h4>✅ What\'s Positive</h4><ul>' + posHtml + '</ul></div>' +
-      '<div class="insights-col neg"><h4>⚠️ What\'s Negative</h4><ul>' + negHtml + '</ul></div>' +
-    '</div>';
-
-  const headerRow = '<tr><th class="cluster-col">Cluster</th>' +
-    stages.map(s => '<th class="conv-head">' + s.label + ' P1%</th><th class="conv-head">' + s.label + ' P2%</th>').join('') + '</tr>';
-
-  document.getElementById('tgtRegionContainerFunnel').innerHTML = regions.map(region => {
-    const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
-    const rows = clustersInRegion.map(c => {
-      const cells = stages.map(s => {
-        const cs = computeClusterStage(c, s.key);
-        return '<td class="' + signedPctCls(cs.pct1) + '">' + fmtSignedPct(cs.pct1) + '</td><td class="' + signedPctCls(cs.pct2) + '">' + fmtSignedPct(cs.pct2) + '</td>';
-      }).join('');
-      return '<tr><td class="cluster-name">' + c + '</td>' + cells + '</tr>';
-    }).join('');
-    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
-      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
-      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
-  }).join('');
+function sepChannelTarget(cluster, channel){
+  const bqlTarget = (SEPT_TARGETS[cluster] || {}).bql || 0;
+  const mix = SEPT_CHANNEL_MIX[cluster];
+  if(!mix || mix[channel] === undefined) return null; // no channel-mix data for this cluster
+  return bqlTarget * mix[channel];
 }
 
 function initTargetsPage(){
-  if(!TARGETS_LOADED || !CHANNEL_DATA_LOADED) return;
   if(!TARGETS_PAGE_INIT){
-    const months2026 = getAvailableMonths().filter(m => m.year === 2026);
-    const monthOptions = months2026.map(m => '<option value="' + m.year + '-' + m.month + '">' + monthLabel(m) + '</option>').join('');
-    const msB = document.getElementById('tgtMonthSelBQL');
-    const msF = document.getElementById('tgtMonthSelFunnel');
-    msB.innerHTML = monthOptions;
-    msF.innerHTML = monthOptions;
-    if(months2026.length){
-      const last = months2026[months2026.length - 1];
-      msB.value = last.year + '-' + last.month;
-      msF.value = last.year + '-' + last.month;
-    }
+    const daySel = document.getElementById('tgtAsOfDay');
+    const daysInSep = 30;
+    daySel.innerHTML = Array.from({length: daysInSep}, (_,i) => i+1).map(d => '<option value="' + d + '">' + d + '</option>').join('');
+    const today = new Date();
+    const defaultDay = (today.getFullYear() === SEPT_YEAR && today.getMonth()+1 === SEPT_MONTH) ? Math.max(1, today.getDate()-1) : daysInSep;
+    daySel.value = Math.min(defaultDay, daysInSep);
 
-    msB.addEventListener('change', drawTargetsBQL);
-    document.getElementById('tgtScopeSelBQL').addEventListener('change', () => { TGT_BQL_MODE === 'month' ? drawTargetsBQL() : drawTargetsBQLCompare(); });
-    msF.addEventListener('change', drawTargetsFunnel);
-    document.getElementById('tgtScopeSelFunnel').addEventListener('change', () => { TGT_FUNNEL_MODE === 'month' ? drawTargetsFunnel() : drawTargetsFunnelCompare(); });
-
-    document.getElementById('tgtBqlCompareDays').addEventListener('change', drawTargetsBQLCompare);
-    document.getElementById('tgtFunnelCompareDays').addEventListener('change', drawTargetsFunnelCompare);
-
-    document.querySelectorAll('#tgtBqlModeToggle .toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#tgtBqlModeToggle .toggle-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        TGT_BQL_MODE = btn.dataset.mode;
-        document.getElementById('tgtBqlMonthControls').style.display = TGT_BQL_MODE === 'month' ? 'flex' : 'none';
-        document.getElementById('tgtBqlCompareControls').style.display = TGT_BQL_MODE === 'compare' ? 'flex' : 'none';
-        document.getElementById('tgtBqlInsights').style.display = TGT_BQL_MODE === 'compare' ? 'block' : 'none';
-        TGT_BQL_MODE === 'month' ? drawTargetsBQL() : drawTargetsBQLCompare();
-      });
-    });
-    document.querySelectorAll('#tgtFunnelModeToggle .toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#tgtFunnelModeToggle .toggle-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        TGT_FUNNEL_MODE = btn.dataset.mode;
-        document.getElementById('tgtFunnelMonthControls').style.display = TGT_FUNNEL_MODE === 'month' ? 'flex' : 'none';
-        document.getElementById('tgtFunnelCompareControls').style.display = TGT_FUNNEL_MODE === 'compare' ? 'flex' : 'none';
-        document.getElementById('tgtFunnelInsights').style.display = TGT_FUNNEL_MODE === 'compare' ? 'block' : 'none';
-        TGT_FUNNEL_MODE === 'month' ? drawTargetsFunnel() : drawTargetsFunnelCompare();
-      });
-    });
-
-    document.querySelectorAll('#targetsViewToggle .toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#targetsViewToggle .toggle-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById('viewTargetsBQL').style.display = btn.dataset.view === 'bql' ? 'block' : 'none';
-        document.getElementById('viewTargetsFunnel').style.display = btn.dataset.view === 'funnel' ? 'block' : 'none';
-      });
-    });
+    daySel.addEventListener('change', drawTargetsBQL);
+    document.getElementById('tgtScopeSel').addEventListener('change', drawTargetsBQL);
+    document.getElementById('tgtChannelSel').addEventListener('change', drawTargetsBQL);
     TARGETS_PAGE_INIT = true;
   }
   drawTargetsBQL();
-  drawTargetsFunnel();
-}
-
-function computeTrendGeneric(dayValFn, completedDays){
-  if(completedDays < 10) return null; // need two full 5-day windows
-  let last5 = 0, prev5 = 0;
-  for(let d = completedDays - 4; d <= completedDays; d++) last5 += dayValFn(d);
-  for(let d = completedDays - 9; d <= completedDays - 5; d++) prev5 += dayValFn(d);
-  const last5Avg = last5 / 5, prev5Avg = prev5 / 5;
-  const pct = prev5Avg > 0 ? ((last5Avg - prev5Avg) / prev5Avg * 100) : (last5Avg > 0 ? 100 : null);
-  return {prev5Avg, last5Avg, pct};
-}
-function computeTrend(c, year, month, completedDays, stageKey){
-  return computeTrendGeneric(d => getClusterDayVal(c, year, month, d, stageKey), completedDays);
-}
-function computeChanTrend(city, channel, year, month, completedDays){
-  return computeTrendGeneric(d => getChanDayVal(city, channel, year, month, d), completedDays);
-}
-
-function trendHtml(trend){
-  if(!trend) return '<span class="conv-cell">—</span>';
-  const dir = trend.pct === null ? '' : (trend.pct >= 0 ? '▲' : '▼');
-  const cls = trend.pct === null ? 'trend-flat' : (trend.pct >= 0 ? 'trend-up' : 'trend-down');
-  const pctTxt = trend.pct === null ? '' : (' ' + dir + ' ' + Math.abs(trend.pct).toFixed(0) + '%');
-  return '<span class="' + cls + '">' + trend.prev5Avg.toFixed(1) + '→' + trend.last5Avg.toFixed(1) + pctTxt + '</span>';
 }
 
 function drawTargetsBQL(){
-  const monthSel = document.getElementById('tgtMonthSelBQL');
-  if(!monthSel.value) return;
-  const [year, month] = monthSel.value.split('-').map(Number);
-  const scope = document.getElementById('tgtScopeSelBQL').value;
-  const daysInMon = new Date(year, month, 0).getDate();
-  const curMonth = isCurrentMonth(year, month);
-  const completedDays = curMonth ? Math.max(0, new Date().getDate() - 1) : daysInMon;
-  const dayCols = curMonth ? completedDays : daysInMon;
+  const asOfDay = parseInt(document.getElementById('tgtAsOfDay').value, 10);
+  const scope = document.getElementById('tgtScopeSel').value;
+  const channel = document.getElementById('tgtChannelSel').value;
+  const useChannel = channel !== '__all__';
 
-  document.getElementById('tgtPillBQL').textContent = monthLabel({year, month}) +
-    (curMonth ? ' · MTD (through Day ' + completedDays + ')' : ' · Full Month') +
-    ' · ' + (scope === 'non-expansion' ? 'India Non-Expansion' : 'India Expansion');
+  const clusterList = scope === 'non-expansion' ? SEPT_NON_EXPANSION : (scope === 'expansion' ? SEPT_EXPANSION : SEPT_ALL_CLUSTERS);
+  document.getElementById('tgtPill').textContent = 'As of Sep ' + asOfDay + ', 2026 — MTD vs LMTD (Aug ' + asOfDay + ', 2026)' + (useChannel ? ' · ' + channel : '');
 
-  const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
-  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
+  function fmtPct(v){ return v === null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }
+  function pctCls(v){ return v === null ? '' : (v >= 0 ? 'pct-pos' : 'pct-neg'); }
 
-  function computeRow(c){
-    const monthlyTarget = getTarget(c, month, 'bql');
-    const dailyTarget = daysInMon > 0 ? (monthlyTarget / daysInMon) : 0;
-    const displayTarget = curMonth ? dailyTarget * completedDays : monthlyTarget;
-    const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, 'bql') : getClusterMonthTotal(c, year, month, 'bql');
-    const pct = displayTarget > 0 ? ((achieved - displayTarget) / displayTarget * 100) : null;
-    return {c, monthlyTarget, dailyTarget, displayTarget, achieved, pct};
-  }
-
-  function dayCellsHtml(dayValFn, dailyTarget, colorize){
-    let out = '';
-    for(let d = 1; d <= dayCols; d++){
-      const val = dayValFn(d);
-      const cls = (colorize && curMonth) ? (val >= dailyTarget ? 'day-hit' : 'day-miss') : '';
-      out += '<td class="' + cls + '">' + val.toLocaleString('en-IN') + '</td>';
+  function rowStats(cluster){
+    let mtdTarget, mtdAch, lmtdAch;
+    if(useChannel){
+      mtdTarget = sepChannelTarget(cluster, channel);
+      const daysInSep = 30;
+      mtdTarget = mtdTarget === null ? null : (mtdTarget / daysInSep * asOfDay);
+      mtdAch = getChanMTDTotal(cluster, channel, SEPT_YEAR, SEPT_MONTH, asOfDay);
+      lmtdAch = getChanMTDTotal(cluster, channel, SEPT_YEAR, AUG_MONTH, asOfDay);
+    } else {
+      const monthlyTarget = (SEPT_TARGETS[cluster] || {}).bql || 0;
+      const daysInSep = 30;
+      mtdTarget = monthlyTarget / daysInSep * asOfDay;
+      mtdAch = getClusterMTDTotal(cluster, SEPT_YEAR, SEPT_MONTH, asOfDay, 'bql');
+      lmtdAch = getClusterMTDTotal(cluster, SEPT_YEAR, AUG_MONTH, asOfDay, 'bql');
     }
-    return out;
+    const tgtVsAchPct = (mtdTarget !== null && mtdTarget > 0) ? ((mtdAch - mtdTarget) / mtdTarget * 100) : null;
+    const lmtdVsMtdPct = lmtdAch > 0 ? ((mtdAch - lmtdAch) / lmtdAch * 100) : null;
+    return {mtdTarget, mtdAch, lmtdAch, tgtVsAchPct, lmtdVsMtdPct};
   }
 
-  // Main row: Cluster | Target | Daily Target | Achieved | Tgt vs Ach % | Trend | D1..Dn
-  function mainRowHtml(r, isTotal, dayValFn){
-    const pctCls = r.pct === null ? 'contrib-lo' : (r.pct >= 0 ? 'contrib-hi' : 'contrib-lo');
-    const pctTxt = r.pct === null ? '—' : (r.pct >= 0 ? '+' : '') + r.pct.toFixed(0) + '%';
-    const trend = curMonth ? computeTrendGeneric(dayValFn, completedDays) : null;
-    const trendCell = curMonth ? '<td class="conv-td">' + trendHtml(trend) + '</td>' : '';
-    const rowId = isTotal ? 'TOTAL' : r.c;
-    const expandBtn = '<button type="button" class="expand-btn" onclick="toggleChanRows(this)">+</button>';
-    return '<tr data-cluster="' + rowId + '"><td class="cluster-name">' + expandBtn + r.c + '</td>' +
-      '<td>' + Math.round(r.displayTarget).toLocaleString('en-IN') + '</td>' +
-      '<td>' + Math.round(r.dailyTarget).toLocaleString('en-IN') + '</td>' +
-      '<td>' + r.achieved.toLocaleString('en-IN') + '</td>' +
-      '<td class="conv-td"><span class="conv-cell contrib-cell ' + pctCls + '">' + pctTxt + '</span></td>' +
-      trendCell + dayCellsHtml(dayValFn, r.dailyTarget, true) + '</tr>';
-  }
+  const allStats = clusterList.map(c => ({cluster: c, ...rowStats(c)}));
 
-  // Channel sub-row: no targets, just channel name, MTD Achieved, Trend, and DOD numbers
-  function chanRowHtml(rowId, channelLabel, dayValFn){
-    let sum = 0;
-    for(let d = 1; d <= dayCols; d++) sum += dayValFn(d);
-    const trend = curMonth ? computeTrendGeneric(dayValFn, completedDays) : null;
-    const trendCell = curMonth ? '<td class="conv-td">' + trendHtml(trend) + '</td>' : '';
-    return '<tr class="chan-row" data-parent="' + rowId + '" style="display:none;"><td class="cluster-name">' + channelLabel + '</td>' +
-      '<td>—</td><td>—</td><td>' + sum.toLocaleString('en-IN') + '</td><td>—</td>' +
-      trendCell + dayCellsHtml(dayValFn, 0, false) + '</tr>';
-  }
+  const totalTarget = allStats.reduce((a,r) => a + (r.mtdTarget || 0), 0);
+  const totalAch = allStats.reduce((a,r) => a + r.mtdAch, 0);
+  const totalLmtd = allStats.reduce((a,r) => a + r.lmtdAch, 0);
+  const totalTgtPct = totalTarget > 0 ? ((totalAch - totalTarget) / totalTarget * 100) : null;
+  const totalLmtdPct = totalLmtd > 0 ? ((totalAch - totalLmtd) / totalLmtd * 100) : null;
 
-  function clusterRowsWithChannels(c){
-    const r = computeRow(c);
-    const main = mainRowHtml(r, false, d => getClusterDayVal(c, year, month, d, 'bql'));
-    const chans = CHANNELS_5.map(chan => chanRowHtml(c, chan, d => getChanDayVal(c, chan, year, month, d))).join('');
-    return main + chans;
-  }
+  document.getElementById('tgtTotalRow').innerHTML = [
+    {label: 'MTD Target', value: Math.round(totalTarget).toLocaleString('en-IN')},
+    {label: 'MTD Achieved', value: totalAch.toLocaleString('en-IN')},
+    {label: 'LMTD Achieved', value: totalLmtd.toLocaleString('en-IN')},
+    {label: 'MTD Tgt vs Ach %', value: fmtPct(totalTgtPct)},
+    {label: 'LMTD vs MTD %', value: fmtPct(totalLmtdPct)}
+  ].map(c => '<div class="kpi"><div class="label">' + c.label + '</div><div class="value">' + c.value + '</div></div>').join('');
 
-  let dayHeaders = '';
-  for(let d = 1; d <= dayCols; d++) dayHeaders += '<th>D' + d + '</th>';
-  const trendHeader = curMonth ? '<th class="conv-head">Trend (5d avg)</th>' : '';
-  const headerRow = '<tr><th class="cluster-col">Cluster</th>' +
-    '<th>' + (curMonth ? 'MTD Target' : 'Monthly Target') + '</th><th>Daily Target</th><th>' + (curMonth ? 'MTD Achieved' : 'Monthly Achieved') + '</th><th class="conv-head">Tgt vs Ach %</th>' +
-    trendHeader + dayHeaders + '</tr>';
+  const headerRow = '<tr><th class="cluster-col">Cluster</th><th>MTD Target</th><th>MTD Achieved</th><th>LMTD Achieved</th>' +
+    '<th class="conv-head">MTD Tgt vs Ach %</th><th class="conv-head">LMTD vs MTD %</th></tr>';
 
-  // ---- Scope total (sum of all clusters currently in scope) ----
-  const allRows = clusterList.map(computeRow);
-  const totalRow = {
-    c: (scope === 'non-expansion' ? 'TOTAL — India Non-Expansion' : 'TOTAL — India Expansion'),
-    monthlyTarget: allRows.reduce((a,r) => a + r.monthlyTarget, 0),
-    dailyTarget: allRows.reduce((a,r) => a + r.dailyTarget, 0),
-    displayTarget: allRows.reduce((a,r) => a + r.displayTarget, 0),
-    achieved: allRows.reduce((a,r) => a + r.achieved, 0)
-  };
-  totalRow.pct = totalRow.displayTarget > 0 ? ((totalRow.achieved - totalRow.displayTarget) / totalRow.displayTarget * 100) : null;
-  const totalDayValFn = d => clusterList.reduce((a,cn) => a + getClusterDayVal(cn, year, month, d, 'bql'), 0);
-  const totalMain = mainRowHtml(totalRow, true, totalDayValFn);
-  const totalChans = CHANNELS_5.map(chan => chanRowHtml('TOTAL', chan, d => clusterList.reduce((a,cn) => a + getChanDayVal(cn, chan, year, month, d), 0))).join('');
-
-  const totalCard = '<div class="total-card"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' +
-    totalMain + totalChans + '</tbody></table></div></div>';
-
-  const regionBlocks = regions.map(region => {
-    const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
-    const rows = clustersInRegion.map(c => clusterRowsWithChannels(c)).join('');
-
+  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c] || (SEPT_NEW_CLUSTERS_EXPANSION.includes(c) ? 'New/Expansion' : 'Other')))];
+  document.getElementById('tgtRegionContainer').innerHTML = regions.map(region => {
+    const clustersInRegion = clusterList.filter(c => (CLUSTER_REGION[c] || (SEPT_NEW_CLUSTERS_EXPANSION.includes(c) ? 'New/Expansion' : 'Other')) === region);
+    const rows = allStats.filter(r => clustersInRegion.includes(r.cluster)).map(r =>
+      '<tr><td class="cluster-name">' + r.cluster + '</td>' +
+      '<td>' + Math.round(r.mtdTarget === null ? 0 : r.mtdTarget).toLocaleString('en-IN') + (r.mtdTarget === null ? ' (no channel mix data)' : '') + '</td>' +
+      '<td>' + r.mtdAch.toLocaleString('en-IN') + '</td>' +
+      '<td>' + r.lmtdAch.toLocaleString('en-IN') + '</td>' +
+      '<td class="' + pctCls(r.tgtVsAchPct) + '">' + fmtPct(r.tgtVsAchPct) + '</td>' +
+      '<td class="' + pctCls(r.lmtdVsMtdPct) + '">' + fmtPct(r.lmtdVsMtdPct) + '</td></tr>'
+    ).join('');
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
       '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
   }).join('');
-
-  document.getElementById('tgtRegionContainerBQL').innerHTML = totalCard + regionBlocks;
 }
-
-
-function drawTargetsFunnel(){
-  const monthSel = document.getElementById('tgtMonthSelFunnel');
-  if(!monthSel.value) return;
-  const [year, month] = monthSel.value.split('-').map(Number);
-  const scope = document.getElementById('tgtScopeSelFunnel').value;
-  const daysInMon = new Date(year, month, 0).getDate();
-  const curMonth = isCurrentMonth(year, month);
-  const completedDays = curMonth ? Math.max(0, new Date().getDate() - 1) : daysInMon;
-
-  document.getElementById('tgtPillFunnel').textContent = monthLabel({year, month}) +
-    (curMonth ? ' · MTD (through Day ' + completedDays + ')' : ' · Full Month') +
-    ' · ' + (scope === 'non-expansion' ? 'India Non-Expansion' : 'India Expansion');
-
-  const clusterList = (scope === 'non-expansion' ? NON_EXPANSION : EXPANSION).slice();
-  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c]))];
-  const stages = [{key:'bql', label:'BQL'}, {key:'lrm', label:'LRM'}, {key:'ms', label:'MS'}, {key:'md', label:'MD'}, {key:'order', label:'BD'}, {key:'hoto', label:'HOTO'}];
-
-  function computeStageValues(c){
-    const out = {};
-    stages.forEach(s => {
-      // The Targets sheet has no separate Booking Done (BD) block — its target mirrors HOTO's target.
-      const targetKey = s.key === 'order' ? 'hoto' : s.key;
-      const monthlyTarget = getTarget(c, month, targetKey);
-      let displayTarget;
-      if(curMonth){
-        displayTarget = computeMtdTarget(s.key, year, month, monthlyTarget, completedDays);
-      } else {
-        displayTarget = monthlyTarget;
-      }
-      const achieved = curMonth ? getClusterMTDTotal(c, year, month, completedDays, s.key) : getClusterMonthTotal(c, year, month, s.key);
-      const pct = displayTarget > 0 ? ((achieved - displayTarget) / displayTarget * 100) : null;
-      out[s.key] = {target: displayTarget, achieved, pct};
-    });
-    return out;
-  }
-
-  function rowHtml(label, vals, isTotal){
-    const targetCells = stages.map(s => '<td>' + Math.round(vals[s.key].target).toLocaleString('en-IN') + '</td>').join('');
-    const achievedCells = stages.map(s => '<td>' + Math.round(vals[s.key].achieved).toLocaleString('en-IN') + '</td>').join('');
-    const deficitCells = stages.map(s => {
-      const p = vals[s.key].pct;
-      const cls = p === null ? '' : (p >= 0 ? 'pct-pos' : 'pct-neg');
-      const txt = p === null ? '—' : (p >= 0 ? '+' : '') + p.toFixed(0) + '%';
-      return '<td class="' + cls + '">' + txt + '</td>';
-    }).join('');
-    return '<tr><td class="cluster-name">' + label + '</td>' + targetCells + achievedCells + deficitCells + '</tr>';
-  }
-
-  const groupHeaderRow = '<tr><th class="cluster-col" rowspan="2">Cluster</th>' +
-    '<th colspan="6" class="grp-target">Target' + (curMonth ? ' (MTD)' : '') + '</th>' +
-    '<th colspan="6" class="grp-actual">Actual</th>' +
-    '<th colspan="6" class="grp-deficit-head">% Deficit vs MOP</th></tr>';
-  const subHeaderRow = '<tr>' +
-    stages.map(s => '<th class="grp-target">' + s.label + '</th>').join('') +
-    stages.map(s => '<th class="grp-actual">' + s.label + '</th>').join('') +
-    stages.map(s => '<th class="grp-deficit-head">' + s.label + '</th>').join('') +
-    '</tr>';
-  const headerHtml = groupHeaderRow + subHeaderRow;
-
-  // ---- Scope total row (rendered at the bottom, matching reference layout) ----
-  const totalVals = {};
-  stages.forEach(s => { totalVals[s.key] = {target: 0, achieved: 0}; });
-  clusterList.forEach(c => {
-    const v = computeStageValues(c);
-    stages.forEach(s => { totalVals[s.key].target += v[s.key].target; totalVals[s.key].achieved += v[s.key].achieved; });
-  });
-  stages.forEach(s => {
-    const t = totalVals[s.key];
-    t.pct = t.target > 0 ? ((t.achieved - t.target) / t.target * 100) : null;
-  });
-  const totalLabel = scope === 'non-expansion' ? 'India (Total) — Non-Expansion' : 'India (Total) — Expansion';
-  const totalBottom = '<div class="total-bottom"><div class="table-wrap"><table><thead>' + headerHtml + '</thead><tbody>' +
-    rowHtml(totalLabel, totalVals, true) + '</tbody></table></div></div>';
-
-  const regionBlocks = regions.map(region => {
-    const clustersInRegion = clusterList.filter(c => CLUSTER_REGION[c] === region);
-    const rows = clustersInRegion.map(c => rowHtml(c, computeStageValues(c), false)).join('');
-
-    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
-      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
-      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerHtml + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
-  }).join('');
-
-  document.getElementById('tgtRegionContainerFunnel').innerHTML = regionBlocks + totalBottom;
-}
-
 
 function weekStart(date){
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
