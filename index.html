@@ -324,13 +324,10 @@
 <div class="layout">
   <div class="sidebar">
     <div class="side-section">
-      <div class="side-label">Overview</div>
+      <div class="side-label">BQL</div>
       <div class="side-item active" id="nav-mom" onclick="showPage('mom')">MoM Funnel (Cluster-wise)</div>
-      <div class="side-item" id="nav-targets" onclick="showPage('targets')">Target vs Achievement</div>
-    </div>
-    <div class="side-section">
-      <div class="side-label">Channel</div>
-      <div class="side-item" id="nav-channel" onclick="showPage('channel')">BQL MoM — Channel-wise</div>
+      <div class="side-item" id="nav-targets" onclick="showPage('targets')">Tar vs Ach vs LMTD</div>
+      <div class="side-item" id="nav-channel" onclick="showPage('channel')">BQL Channel-wise</div>
       <div class="side-item" id="nav-cohort" onclick="showPage('cohort')">BQL Cohort Funnel</div>
     </div>
     <div class="side-section">
@@ -404,51 +401,14 @@
   </div>
 
   <div id="page-channel" class="page-view" style="display:none;">
-    <div class="page-title">BQL MoM — Channel-wise</div>
+    <div class="page-title">BQL Channel-wise</div>
     <div class="page-sub">Live from Google Sheet · Cohort basis (leads grouped by their own Created month) · Unique leads only</div>
 
     <div class="note" id="channelLoadStatus">Connecting to live sheet…</div>
 
-    <div class="controls" style="margin-bottom:18px;">
-      <div><label>View</label>
-        <div class="toggle-group" id="channelViewToggle">
-          <button type="button" class="toggle-btn active" data-view="contrib">Contribution % by Channel</button>
-          <button type="button" class="toggle-btn" data-view="mix">Channel Mix by Cluster</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="viewContrib">
     <div class="section-card">
       <div class="section-head">
-        <div class="section-title">Channel Contribution % <span class="section-tag">Cluster × Month</span></div>
-        <div class="section-desc">Share of a cluster's total BQL that came from the selected channel, by month.</div>
-      </div>
-      <div class="controls">
-        <div><label>Channel</label>
-          <select id="chanSelA"></select>
-        </div>
-        <div><label>India Scope</label>
-          <select id="scopeSelA">
-            <option value="all">All India</option>
-            <option value="non-expansion">India Non-Expansion</option>
-            <option value="expansion">India Expansion</option>
-          </select>
-        </div>
-        <div style="min-width:220px;"><label>Add clusters to graph</label>
-          <select id="clusterMultiA" multiple size="1"></select>
-        </div>
-        <div class="pill" id="periodPillA"></div>
-      </div>
-      <div id="chartWrapA" class="chart-wrap"></div>
-      <div id="regionContainerA"></div>
-    </div>
-    </div>
-
-    <div id="viewMix" style="display:none;">
-    <div class="section-card">
-      <div class="section-head">
-        <div class="section-title">Channel Mix by Cluster <span class="section-tag">Channel × Month</span></div>
+        <div class="section-title">Channel Mix <span class="section-tag">Cont% &amp; Conv%</span></div>
         <div class="section-desc">For the selected cluster: BQL contribution % and BQL→LRM conversion % (cohort basis) for each channel, by month.</div>
       </div>
       <div class="controls">
@@ -457,9 +417,7 @@
         </div>
         <div class="pill" id="periodPillMix"></div>
       </div>
-      <div id="chartWrapMix" class="chart-wrap"></div>
       <div id="mixGridWrap" class="table-wrap"></div>
-    </div>
     </div>
   </div>
 
@@ -497,8 +455,15 @@
         </div>
         <div class="pill" id="periodPillB"></div>
       </div>
-      <div id="chartWrapB" class="chart-wrap"></div>
       <div id="funnelTableWrapB" class="table-wrap"></div>
+    </div>
+
+    <div class="section-card" id="cohortClusterBreakdownCard" style="display:none;">
+      <div class="section-head">
+        <div class="section-title">Cluster-wise — <span id="cohortBreakdownChannelLabel"></span> <span class="section-tag" id="cohortBreakdownMonthsTag"></span></div>
+        <div class="section-desc">Funnel performance for this channel, per cluster, comparing the two most recent months.</div>
+      </div>
+      <div id="cohortClusterBreakdownContainer"></div>
     </div>
   </div>
 
@@ -709,14 +674,16 @@ const CLUSTER_REGION = {
   'Chennai':'South','Amravati':'MH','Jaipur':'RJ','Aurangabad':'MH','Ghaziabad':'NCR','Delhi':'NCR',
   'Ahmedabad':'GJ','Indore':'MP','Gwalior':'MP','Varanasi':'UP','Kanpur':'UP','Gurgaon':'NCR',
   'Bangalore':'South','Kolhapur':'MH','Noida':'NCR','Lucknow':'UP','Hyderabad':'South','Pune':'MH',
-  'Bhopal':'MP','Nagpur':'MH','Nashik':'MH','Jabalpur':'MP',
-  'Meerut':'UP','Coimbatore':'South','Faridabad':'NCR','Salem':'South','Agra':'UP','Vijayawada':'South',
-  'Jodhpur':'RJ','Bareilly':'UP','Solapur':'MH','Visakhapatnam':'South','Jalgaon':'MH','Kota':'RJ',
-  'Erode':'South'
+  'Bhopal':'MP','Nagpur':'MH','Nashik':'MH','Jabalpur':'MP','Agra':'UP','Coimbatore':'South',
+  'Meerut':'UP','Vijayawada':'South','Salem/Erode':'South','Jodhpur':'RJ','Bareilly':'UP',
+  'Solapur':'MH','Visakhapatnam':'South','Jalgaon':'MH','Kota':'RJ',
+  'Raipur':'Other','Trichy':'South','Prayagraj':'UP'
 };
 
-const NON_EXPANSION = ['Chennai','Amravati','Jaipur','Aurangabad','Ghaziabad','Delhi','Ahmedabad','Indore','Gwalior','Varanasi','Kanpur','Gurgaon','Bangalore','Kolhapur','Noida','Lucknow','Hyderabad','Pune','Bhopal','Nagpur','Nashik','Jabalpur'];
-const EXPANSION = ['Meerut','Coimbatore','Faridabad','Salem','Agra','Vijayawada','Jodhpur','Bareilly','Solapur','Visakhapatnam','Jalgaon','Kota','Erode'];
+// Confirmed authoritative list (Sep 2026) — Agra moved to Non-Expansion, Faridabad dropped,
+// Salem+Erode merged into one cluster, and Raipur/Trichy/Prayagraj added as new Expansion cities.
+const NON_EXPANSION = ['Ahmedabad','Nagpur','Amravati','Aurangabad','Nashik','Pune','Kolhapur','Jalgaon','Solapur','Bhopal','Gwalior','Indore','Jabalpur','Jaipur','Delhi','Gurgaon','Ghaziabad','Noida','Agra','Kanpur','Lucknow','Varanasi','Hyderabad','Bangalore','Chennai','Coimbatore'];
+const EXPANSION = ['Bareilly','Meerut','Vijayawada','Salem/Erode','Kota','Visakhapatnam','Jodhpur','Raipur','Trichy','Prayagraj'];
 
 let CLUSTERS = [
   ...NON_EXPANSION.map(name => ({name, region: CLUSTER_REGION[name], scope:'non-expansion'})),
@@ -725,7 +692,7 @@ let CLUSTERS = [
 
 // ---------- REAL DATA (embedded from Project_DB_1_0_-_mom_funnel.csv) ----------
 let MONTHS = []; // populated live from the MoM Funnel sheet
-const REAL_CLUSTER_NAMES = ["Agra", "Ahmedabad", "Amravati", "Aurangabad", "Bangalore", "Bareilly", "Bhopal", "Chennai", "Coimbatore", "Delhi", "Erode", "Faridabad", "Ghaziabad", "Gurgaon", "Gwalior", "Hyderabad", "Indore", "Jabalpur", "Jaipur", "Jalgaon", "Jodhpur", "Kanpur", "Kolhapur", "Kota", "Lucknow", "Meerut", "Nagpur", "Nashik", "Noida", "Pune", "Salem", "Solapur", "Varanasi", "Vijayawada", "Visakhapatnam"];
+const REAL_CLUSTER_NAMES = [...NON_EXPANSION, ...EXPANSION];
 CLUSTERS = REAL_CLUSTER_NAMES.map(name => ({
   name,
   region: CLUSTER_REGION[name] || 'Unmapped',
@@ -1492,10 +1459,9 @@ const SEPT_CHANNEL_MIX = {
 };
 // Clusters present in the Sept sheet but not in the dashboard's existing roster
 // (new P0 expansion cities, or a merged cluster) — bucketed by best judgement; flagged for confirmation.
-const SEPT_NEW_CLUSTERS_EXPANSION = ['Prayagraj','Raipur','Trichy','Salem/Erode'];
 const SEPT_ALL_CLUSTERS = Object.keys(SEPT_TARGETS);
 const SEPT_NON_EXPANSION = SEPT_ALL_CLUSTERS.filter(c => NON_EXPANSION.includes(c));
-const SEPT_EXPANSION = SEPT_ALL_CLUSTERS.filter(c => EXPANSION.includes(c) || SEPT_NEW_CLUSTERS_EXPANSION.includes(c));
+const SEPT_EXPANSION = SEPT_ALL_CLUSTERS.filter(c => EXPANSION.includes(c));
 
 const SEPT_YEAR = 2026, SEPT_MONTH = 9, AUG_MONTH = 8;
 
@@ -1574,9 +1540,9 @@ function drawTargetsBQL(){
   const headerRow = '<tr><th class="cluster-col">Cluster</th><th>MTD Target</th><th>MTD Achieved</th><th>LMTD Achieved</th>' +
     '<th class="conv-head">MTD Tgt vs Ach %</th><th class="conv-head">LMTD vs MTD %</th></tr>';
 
-  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c] || (SEPT_NEW_CLUSTERS_EXPANSION.includes(c) ? 'New/Expansion' : 'Other')))];
+  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c] || 'Other'))];
   document.getElementById('tgtRegionContainer').innerHTML = regions.map(region => {
-    const clustersInRegion = clusterList.filter(c => (CLUSTER_REGION[c] || (SEPT_NEW_CLUSTERS_EXPANSION.includes(c) ? 'New/Expansion' : 'Other')) === region);
+    const clustersInRegion = clusterList.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
     const rows = allStats.filter(r => clustersInRegion.includes(r.cluster)).map(r =>
       '<tr><td class="cluster-name">' + r.cluster + '</td>' +
       '<td>' + Math.round(r.mtdTarget === null ? 0 : r.mtdTarget).toLocaleString('en-IN') + (r.mtdTarget === null ? ' (no channel mix data)' : '') + '</td>' +
@@ -1620,31 +1586,9 @@ function getClusterList(scope){
 }
 
 function initChannelPage(){
-  const chanSelA = document.getElementById('chanSelA');
-  chanSelA.innerHTML = CHANNELS.map(c => '<option value="'+c+'">'+c+'</option>').join('');
-
-  const clusterMultiA = document.getElementById('clusterMultiA');
-  clusterMultiA.innerHTML = REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="'+c+'">'+c+'</option>').join('');
-  clusterMultiA.size = Math.min(6, REAL_CLUSTER_NAMES.length);
-
   const clusterSelMix = document.getElementById('clusterSelMix');
   clusterSelMix.innerHTML = REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="'+c+'">'+c+'</option>').join('');
-
-  chanSelA.addEventListener('change', drawSectionA);
-  document.getElementById('scopeSelA').addEventListener('change', drawSectionA);
-  clusterMultiA.addEventListener('change', drawSectionA);
   clusterSelMix.addEventListener('change', drawSectionMix);
-
-  document.querySelectorAll('#channelViewToggle .toggle-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#channelViewToggle .toggle-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById('viewContrib').style.display = btn.dataset.view === 'contrib' ? 'block' : 'none';
-      document.getElementById('viewMix').style.display = btn.dataset.view === 'mix' ? 'block' : 'none';
-    });
-  });
-
-  drawSectionA();
   drawSectionMix();
 }
 
@@ -1724,16 +1668,52 @@ function drawSectionB(){
     '<th class="conv-head">BQL→LRM</th><th class="conv-head">LRM→MS</th><th class="conv-head">MS→MD</th><th class="conv-head">MD→BD</th><th class="conv-head">BD→HOTO</th><th class="conv-head">MD→HOTO</th>' +
     '</tr></thead><tbody>' + rowsHtml + '</tbody></table>';
 
-  const labels = series.map(s => s.label);
-  const chartSeries = [
-    {name: 'BQL', color: '#0f6e5c', values: series.map(s => s.bql)},
-    {name: 'Lead→LRM', color: '#1f6fd1', values: series.map(s => s.lrm)},
-    {name: 'First MS', color: '#8a5a00', values: series.map(s => s.ms)},
-    {name: 'First MD', color: '#8a3fd1', values: series.map(s => s.md)},
-    {name: 'Booking Done', color: '#d1478a', values: series.map(s => s.order)},
-    {name: 'HoTo', color: '#c53d3d', values: series.map(s => s.hoto)}
-  ];
-  renderLineChart('chartWrapB', labels, chartSeries, '');
+  drawCohortClusterBreakdown(channel);
+}
+
+// When a specific channel is selected, show that channel's funnel performance broken down
+// by cluster, comparing the two most recent available months (currently Aug vs Sep).
+function drawCohortClusterBreakdown(channel){
+  const card = document.getElementById('cohortClusterBreakdownCard');
+  if(channel === '__all__'){
+    card.style.display = 'none';
+    return;
+  }
+  const months = getAvailableMonths();
+  const last2 = months.slice(-2);
+  if(last2.length < 2){
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+  document.getElementById('cohortBreakdownChannelLabel').textContent = channel;
+  document.getElementById('cohortBreakdownMonthsTag').textContent = monthLabel(last2[0]) + ' vs ' + monthLabel(last2[1]);
+
+  const periods = last2.map(m => ({key: m.year + '-' + m.month, label: monthLabel(m)}));
+
+  function rowFor(cluster){
+    const leads = RAW_LEADS.filter(l => l.channel === channel && l.city === cluster);
+    const series = buildFunnelSeries(leads, l => l.year + '-' + l.month, periods);
+    return {cluster, a: series[0], b: series[1]};
+  }
+  const conv = (a,b) => a > 0 ? ((b/a)*100).toFixed(0) + '%' : '—';
+
+  const headerRow = '<tr><th class="cluster-col" rowspan="2">Cluster</th>' +
+    '<th colspan="6">' + periods[0].label + '</th><th colspan="6">' + periods[1].label + '</th></tr>' +
+    '<tr>' + Array.from({length:2}, () => '<th>BQL</th><th>LRM</th><th>MS</th><th>MD</th><th>BD</th><th class="conv-head">HOTO</th>').join('') + '</tr>';
+
+  const regions = [...new Set(REAL_CLUSTER_NAMES.map(c => CLUSTER_REGION[c] || 'Other'))];
+  document.getElementById('cohortClusterBreakdownContainer').innerHTML = regions.map(region => {
+    const clustersInRegion = REAL_CLUSTER_NAMES.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
+    const rows = clustersInRegion.map(c => {
+      const r = rowFor(c);
+      const cellsFor = s => '<td>' + s.bql.toLocaleString('en-IN') + '</td><td>' + s.lrm.toLocaleString('en-IN') + '</td><td>' + s.ms.toLocaleString('en-IN') + '</td><td>' + s.md.toLocaleString('en-IN') + '</td><td>' + s.order.toLocaleString('en-IN') + '</td><td class="conv-td">' + s.hoto.toLocaleString('en-IN') + '</td>';
+      return '<tr><td class="cluster-name">' + c + '</td>' + cellsFor(r.a) + cellsFor(r.b) + '</tr>';
+    }).join('');
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
 }
 
 function initCohortPage(){
@@ -1761,65 +1741,6 @@ function initCohortPage(){
   });
 
   drawSectionB();
-}
-
-function drawSectionA(){
-  const channel = document.getElementById('chanSelA').value;
-  const scope = document.getElementById('scopeSelA').value;
-  const months = getAvailableMonths();
-  if(!months.length) return;
-  document.getElementById('periodPillA').textContent = channel + ' · ' + monthLabel(months[0]) + ' → ' + monthLabel(months[months.length-1]);
-
-  const clusters = getClusterList(scope);
-  const regions = [...new Set(clusters.map(c => c.region))];
-
-  const container = document.getElementById('regionContainerA');
-  container.innerHTML = regions.map(region => {
-    const clustersInRegion = clusters.filter(c => c.region === region);
-    const rows = clustersInRegion.map(c => {
-      const cells = months.map(m => {
-        const key = m.year + '-' + m.month;
-        const bucket = (AGG_MC[key] && AGG_MC[key][c.name]) || {total:0, channels:{}};
-        const chanCount = bucket.channels[channel] || 0;
-        const pct = bucket.total > 0 ? (chanCount / bucket.total * 100) : null;
-        const cls = pct === null ? 'contrib-lo' : (pct >= 30 ? 'contrib-hi' : (pct >= 10 ? 'contrib-mid' : 'contrib-lo'));
-        return '<td><span class="contrib-cell ' + cls + '">' + (pct === null ? '—' : pct.toFixed(0) + '%') + '</span></td>';
-      }).join('');
-      return '<tr><td class="cluster-name">' + c.name + '</td>' + cells + '</tr>';
-    }).join('');
-
-    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
-      '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
-      '<div class="region-body"><div class="table-wrap"><table><thead><tr><th class="cluster-col">Cluster</th>' +
-      months.map(m => '<th>' + monthLabel(m) + '</th>').join('') +
-      '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
-  }).join('');
-
-  const selectedClusters = [...document.getElementById('clusterMultiA').selectedOptions].map(o => o.value);
-  const indiaLine = months.map(m => {
-    const key = m.year + '-' + m.month;
-    let tot = 0, chanTot = 0;
-    clusters.forEach(c => {
-      const bucket = (AGG_MC[key] && AGG_MC[key][c.name]) || {total:0, channels:{}};
-      tot += bucket.total;
-      chanTot += (bucket.channels[channel] || 0);
-    });
-    return tot > 0 ? (chanTot / tot * 100) : 0;
-  });
-
-  const series = [{name: 'India Total', color: '#0f6e5c', values: indiaLine}];
-  const palette = ['#c53d3d','#8a5a00','#1f6fd1','#8a3fd1','#d1478a','#2aa198'];
-  selectedClusters.forEach((cname, i) => {
-    const line = months.map(m => {
-      const key = m.year + '-' + m.month;
-      const bucket = (AGG_MC[key] && AGG_MC[key][cname]) || {total:0, channels:{}};
-      const chanCount = bucket.channels[channel] || 0;
-      return bucket.total > 0 ? (chanCount / bucket.total * 100) : 0;
-    });
-    series.push({name: cname, color: palette[i % palette.length], values: line});
-  });
-
-  renderLineChart('chartWrapA', months.map(monthLabel), series, '%');
 }
 
 function drawSectionMix(){
@@ -1851,19 +1772,6 @@ function drawSectionMix(){
     '</tr><tr>' +
     months.map(() => '<th>Cont%</th><th class="conv-head">Conv%</th>').join('') +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
-
-  const palette = ['#0f6e5c','#c53d3d','#8a5a00','#1f6fd1','#8a3fd1','#d1478a','#2aa198'];
-  const series = CHANNELS.map((channel, i) => {
-    const line = months.map(m => {
-      const key = m.year + '-' + m.month;
-      const bucket = (AGG_MC[key] && AGG_MC[key][cluster]) || {total:0, channels:{}};
-      const chanCount = bucket.channels[channel] || 0;
-      return bucket.total > 0 ? (chanCount / bucket.total * 100) : 0;
-    });
-    return {name: channel, color: palette[i % palette.length], values: line};
-  });
-
-  renderLineChart('chartWrapMix', months.map(monthLabel), series, '%');
 }
 
 function renderLineChart(containerId, labels, series, unitSuffix, showLabels){
