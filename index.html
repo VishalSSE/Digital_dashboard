@@ -1447,17 +1447,18 @@ let SPENDS_LOAD_ERROR = false;
 let SPENDS_LOAD_STARTED = false;
 let CPBQL_PAGE_INIT = false;
 
-// Spends tab columns confirmed from screenshot: A=day (full M/D/YYYY date),
-// B=month, C=day_number, D=cluster, E=Google-Search, F=Google-Demand Gen,
-// G=Google-PMax, H=Google-Other, I=Meta Calling, J=Meta Form, K=Meta Web,
-// L=Meta-Other, M=Unclassified, N=Total Spends, O=total_impression, P=total_clicks.
-function parseSpendDate(str){
+// Spends tab columns confirmed from screenshot: A=day (full date, ambiguous format —
+// used ONLY to extract the year), B=month (numeric), C=day_number (numeric), D=cluster,
+// E=Google-Search, F=Google-Demand Gen, G=Google-PMax, H=Google-Other, I=Meta Calling,
+// J=Meta Form, K=Meta Web, L=Meta-Other, M=Unclassified, N=Total Spends,
+// O=total_impression, P=total_clicks.
+// Month/day come from the dedicated numeric columns (same safe pattern as MoM Funnel) —
+// NOT parsed positionally out of column A, since Apps Script can format a real Date cell
+// as either D/M/YYYY or M/D/YYYY depending on cell type, which is ambiguous to split().
+function extractYearFromDateStr(str){
   if(!str) return null;
-  const parts = String(str).trim().split('/');
-  if(parts.length !== 3) return null;
-  const m = parseInt(parts[0], 10), d = parseInt(parts[1], 10), y = parseInt(parts[2], 10);
-  if(!m || !d || !y) return null;
-  return {year: y, month: m, day: d};
+  const m = String(str).match(/\b(20\d{2})\b/);
+  return m ? parseInt(m[1], 10) : null;
 }
 function parseMoney(str){
   if(!str) return 0;
@@ -1474,7 +1475,14 @@ async function loadSpendsData(){
   try {
     const text = await fetchViaProxy('spends');
     const rows = parseCSV(text);
-    if(!rows.length) throw new Error('Sheet returned no data');
+    const colLetter = i => { let s=''; i=i+1; while(i>0){ s=String.fromCharCode(65+((i-1)%26))+s; i=Math.floor((i-1)/26); } return s; };
+
+    if(!rows.length || rows.length < 2){
+      throw new Error('The sheet returned ' + rows.length + ' row(s) total (need a header row plus at least one data row). ' +
+        'Check that SPENDS_GID in the Apps Script points at a tab that actually has data in it, not an empty tab.' +
+        (rows.length ? ' Header seen: ' + rows[0].join(', ') : ''));
+    }
+
     const header = rows[0].map(h => h.trim());
     const idx = {};
     header.forEach((h,i) => { idx[normalizeHeader(h)] = i; });
@@ -1483,6 +1491,8 @@ async function loadSpendsData(){
       return letterFallback.charCodeAt(0) - 65;
     }
     const cDayIdx = colIdx(['day'], 'A');
+    const cMonthIdx = colIdx(['month'], 'B');
+    const cDayNumIdx = colIdx(['day_number','daynumber'], 'C');
     const cClusterIdx = colIdx(['cluster'], 'D');
     const cSearchIdx = colIdx(['Google - Search','Google-Search'], 'E');
     const cDemandIdx = colIdx(['Google - Demand Gen','Google-Demand Gen','Google-Deman'], 'F');
@@ -1492,13 +1502,17 @@ async function loadSpendsData(){
     const cTotalIdx = colIdx(['Total Spends','Total_Spends'], 'N');
 
     RAW_SPENDS = [];
+    let skippedNoMonthDay = 0, skippedNoYear = 0;
     for(let r = 1; r < rows.length; r++){
       const row = rows[r];
-      const d = parseSpendDate(row[cDayIdx]);
-      if(!d) continue;
+      const month = parseInt(row[cMonthIdx], 10);
+      const dayNum = parseInt(row[cDayNumIdx], 10);
+      if(!month || !dayNum){ skippedNoMonthDay++; continue; }
+      const year = extractYearFromDateStr(row[cDayIdx]);
+      if(!year){ skippedNoYear++; continue; }
       RAW_SPENDS.push({
         cluster: (row[cClusterIdx] || '').trim(),
-        year: d.year, month: d.month, day: d.day,
+        year, month, day: dayNum,
         channelSpend: {
           'Google - Search': parseMoney(row[cSearchIdx]),
           'Google - Demand Gen': parseMoney(row[cDemandIdx]),
@@ -1510,10 +1524,16 @@ async function loadSpendsData(){
       });
     }
 
-    if(RAW_SPENDS.length === 0 && rows.length > 1){
-      const colLetter = i => { let s=''; i=i+1; while(i>0){ s=String.fromCharCode(65+((i-1)%26))+s; i=Math.floor((i-1)/26); } return s; };
-      const sample = rows.slice(1,3).map((row,ri) => 'Row '+(ri+2)+': col '+colLetter(cDayIdx)+'="'+(row[cDayIdx]||'')+'"').join(' | ');
-      throw new Error('Found '+(rows.length-1)+' row(s) but none had a parseable date in column '+colLetter(cDayIdx)+'. Sample: '+sample+'. Header: '+header.map((h,i)=>colLetter(i)+'='+(h||'(blank)')).join(', '));
+    if(RAW_SPENDS.length === 0){
+      const sample = rows.slice(1,4).map((row,ri) => 'Row '+(ri+2)+': ' +
+        colLetter(cDayIdx)+'(day)="'+(row[cDayIdx]||'')+'" ' +
+        colLetter(cMonthIdx)+'(month)="'+(row[cMonthIdx]||'')+'" ' +
+        colLetter(cDayNumIdx)+'(day_number)="'+(row[cDayNumIdx]||'')+'" ' +
+        colLetter(cClusterIdx)+'(cluster)="'+(row[cClusterIdx]||'')+'"'
+      ).join(' | ');
+      throw new Error('Found ' + (rows.length-1) + ' data row(s) but could not parse a date from any of them ' +
+        '(' + skippedNoMonthDay + ' missing month/day_number, ' + skippedNoYear + ' missing a 4-digit year in the day column). ' +
+        'Sample: ' + sample + '. Header seen: ' + header.map((h,i)=>colLetter(i)+'='+(h||'(blank)')).join(', '));
     }
 
     SPENDS_LOADED = true;
@@ -1530,7 +1550,7 @@ async function loadSpendsData(){
     }
     SPENDS_LOAD_ERROR = true;
     statusEl.className = 'note status-err';
-    statusEl.innerHTML = '<b>Could not load Spends data.</b> ' + err.message + '. Confirm the Apps Script proxy is deployed correctly (Spends tab gid), then reload this page.';
+    statusEl.innerHTML = '<b>Could not load Spends data.</b> ' + err.message;
   }
 }
 
