@@ -246,6 +246,7 @@
   }
   .key-modal button:hover{opacity:.92;}
   .key-modal .key-err{color:var(--down);font-size:11.5px;margin-top:8px;display:none;}
+  .cpbql-worse{background:var(--down-bg)!important;font-weight:700;color:var(--down);}
 </style>
 </head>
 <body>
@@ -268,6 +269,7 @@
       <div class="side-item" id="nav-targets" onclick="showPage('targets')">Tar vs Ach vs LMTD</div>
       <div class="side-item" id="nav-channel" onclick="showPage('channel')">BQL Channel-wise</div>
       <div class="side-item" id="nav-cohort" onclick="showPage('cohort')">BQL Cohort Funnel</div>
+      <div class="side-item" id="nav-cpbql" onclick="showPage('cpbql')">CPBQL</div>
     </div>
   </div>
 
@@ -427,6 +429,37 @@
       </div>
       <div id="tgtTotalRow" class="india-summary"></div>
       <div id="tgtRegionContainer"></div>
+    </div>
+  </div>
+
+  <div id="page-cpbql" class="page-view" style="display:none;">
+    <div class="page-title">CPBQL</div>
+    <div class="page-sub">Cost per BQL — spend ÷ BQL achieved, for any two date ranges you want to compare. Target is a fixed per-cluster benchmark (doesn't change with the date range).</div>
+
+    <div class="note" id="spendsLoadStatus">Connecting to live sheet…</div>
+
+    <div class="controls" style="margin-bottom:18px;">
+      <div><label>Scope</label>
+        <select id="cpbqlScopeSel">
+          <option value="overall">Overall</option>
+          <option value="non-expansion">India Non-Expansion</option>
+          <option value="expansion">India Expansion</option>
+        </select>
+      </div>
+      <div><label>Period A — From</label><input type="date" id="cpbqlAFrom"></div>
+      <div><label>To</label><input type="date" id="cpbqlATo"></div>
+      <div><label>Period B — From</label><input type="date" id="cpbqlBFrom"></div>
+      <div><label>To</label><input type="date" id="cpbqlBTo"></div>
+      <div class="pill" id="cpbqlPill"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-title">CPBQL — Target vs Period A vs Period B <span class="section-tag">Click + for channel breakdown</span></div>
+        <div class="section-desc">Target is Overall-level only (no per-channel target exists). A cell is highlighted light red when that period's CPBQL is <i>higher</i> than the other period — i.e. cost per BQL got worse.</div>
+      </div>
+      <div id="cpbqlTotalRow" class="india-summary"></div>
+      <div id="cpbqlRegionContainer"></div>
     </div>
   </div>
 
@@ -695,10 +728,12 @@ function showPage(id){
   document.getElementById('nav-channel').classList.toggle('active', id === 'channel');
   document.getElementById('nav-cohort').classList.toggle('active', id === 'cohort');
   document.getElementById('nav-targets').classList.toggle('active', id === 'targets');
+  document.getElementById('nav-cpbql').classList.toggle('active', id === 'cpbql');
   if(id === 'mom' && !MOM_DATA_LOADED && !MOM_LOAD_ERROR) ensureAccessKey(() => loadMomFunnelData());
-  if((id === 'channel' || id === 'cohort' || id === 'targets') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) ensureAccessKey(() => loadChannelData());
+  if((id === 'channel' || id === 'cohort' || id === 'targets' || id === 'cpbql') && !CHANNEL_DATA_LOADED && !CHANNEL_LOAD_ERROR) ensureAccessKey(() => loadChannelData());
   if(id === 'targets' && !TARGETS_LOADED && !TARGETS_LOAD_ERROR) ensureAccessKey(() => loadTargetsData());
   if(id === 'targets') updateTargetsStatus();
+  if(id === 'cpbql' && !SPENDS_LOADED && !SPENDS_LOAD_ERROR) ensureAccessKey(() => loadSpendsData());
 }
 
 // =====================================================================
@@ -1356,6 +1391,253 @@ function drawTargetsBQL(){
     }).join('');
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">▾</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
+}
+
+
+// =====================================================================
+// CPBQL — Cost per BQL = Spend / BQL achieved. Target is embedded from
+// the Sept Targets CSV's "CPBQL Targets" mini-table (Overall-level only,
+// confirmed as a fixed per-cluster benchmark, not day-prorated).
+// =====================================================================
+const CPBQL_TARGETS = {
+  'India': 622.0,
+  'Agra': 410.0,
+  'Ahmedabad': 620.0,
+  'Amravati': 1930.0,
+  'Aurangabad': 955.0,
+  'Bangalore': 560.0,
+  'Bhopal': 745.0,
+  'Chennai': 535.0,
+  'Coimbatore': 1025.0,
+  'Delhi': 110.0,
+  'Ghaziabad': 640.0,
+  'Gurgaon': 478.0,
+  'Gwalior': 1010.0,
+  'Hyderabad': 1134.0,
+  'Indore': 920.0,
+  'Jabalpur': 1150.0,
+  'Jaipur': 600.0,
+  'Jalgaon': 1058.0,
+  'Kanpur': 800.0,
+  'Kolhapur': 1650.0,
+  'Lucknow': 850.0,
+  'Nagpur': 1400.0,
+  'Nashik': 1418.0,
+  'Noida': 459.0,
+  'Pune': 850.0,
+  'Solapur': 843.0,
+  'Varanasi': 603.0,
+  'Bareilly': 800.0,
+  'Meerut': 350.0,
+  'Vijayawada': 1050.0,
+  'Salem/Erode': 900.0,
+  'Kota': 580.0,
+  'Visakhapatnam': 1250.0,
+  'Jodhpur': 400.0,
+  'Raipur': 450.0,
+  'Trichy': 1000.0,
+  'Prayagraj': 1000.0
+};
+
+let RAW_SPENDS = [];
+let SPENDS_LOADED = false;
+let SPENDS_LOAD_ERROR = false;
+let SPENDS_LOAD_STARTED = false;
+let CPBQL_PAGE_INIT = false;
+
+// Spends tab columns confirmed from screenshot: A=day (full M/D/YYYY date),
+// B=month, C=day_number, D=cluster, E=Google-Search, F=Google-Demand Gen,
+// G=Google-PMax, H=Google-Other, I=Meta Calling, J=Meta Form, K=Meta Web,
+// L=Meta-Other, M=Unclassified, N=Total Spends, O=total_impression, P=total_clicks.
+function parseSpendDate(str){
+  if(!str) return null;
+  const parts = String(str).trim().split('/');
+  if(parts.length !== 3) return null;
+  const m = parseInt(parts[0], 10), d = parseInt(parts[1], 10), y = parseInt(parts[2], 10);
+  if(!m || !d || !y) return null;
+  return {year: y, month: m, day: d};
+}
+function parseMoney(str){
+  if(!str) return 0;
+  const n = parseFloat(String(str).replace(/,/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+async function loadSpendsData(){
+  if(SPENDS_LOAD_STARTED) return;
+  SPENDS_LOAD_STARTED = true;
+  const statusEl = document.getElementById('spendsLoadStatus');
+  statusEl.className = 'note';
+  statusEl.innerHTML = 'Connecting to live sheet\u2026';
+  try {
+    const text = await fetchViaProxy('spends');
+    const rows = parseCSV(text);
+    if(!rows.length) throw new Error('Sheet returned no data');
+    const header = rows[0].map(h => h.trim());
+    const idx = {};
+    header.forEach((h,i) => { idx[normalizeHeader(h)] = i; });
+    function colIdx(guesses, letterFallback){
+      for(const g of guesses){ if(idx[normalizeHeader(g)] !== undefined) return idx[normalizeHeader(g)]; }
+      return letterFallback.charCodeAt(0) - 65;
+    }
+    const cDayIdx = colIdx(['day'], 'A');
+    const cClusterIdx = colIdx(['cluster'], 'D');
+    const cSearchIdx = colIdx(['Google - Search','Google-Search'], 'E');
+    const cDemandIdx = colIdx(['Google - Demand Gen','Google-Demand Gen','Google-Deman'], 'F');
+    const cPMaxIdx = colIdx(['Google - PMax','Google-PMax'], 'G');
+    const cMetaFormIdx = colIdx(['Meta Form'], 'J');
+    const cMetaWebIdx = colIdx(['Meta Web'], 'K');
+    const cTotalIdx = colIdx(['Total Spends','Total_Spends'], 'N');
+
+    RAW_SPENDS = [];
+    for(let r = 1; r < rows.length; r++){
+      const row = rows[r];
+      const d = parseSpendDate(row[cDayIdx]);
+      if(!d) continue;
+      RAW_SPENDS.push({
+        cluster: (row[cClusterIdx] || '').trim(),
+        year: d.year, month: d.month, day: d.day,
+        channelSpend: {
+          'Google - Search': parseMoney(row[cSearchIdx]),
+          'Google - Demand Gen': parseMoney(row[cDemandIdx]),
+          'Google - PMax': parseMoney(row[cPMaxIdx]),
+          'Meta Form': parseMoney(row[cMetaFormIdx]),
+          'Meta Web': parseMoney(row[cMetaWebIdx])
+        },
+        totalSpend: parseMoney(row[cTotalIdx])
+      });
+    }
+
+    if(RAW_SPENDS.length === 0 && rows.length > 1){
+      const colLetter = i => { let s=''; i=i+1; while(i>0){ s=String.fromCharCode(65+((i-1)%26))+s; i=Math.floor((i-1)/26); } return s; };
+      const sample = rows.slice(1,3).map((row,ri) => 'Row '+(ri+2)+': col '+colLetter(cDayIdx)+'="'+(row[cDayIdx]||'')+'"').join(' | ');
+      throw new Error('Found '+(rows.length-1)+' row(s) but none had a parseable date in column '+colLetter(cDayIdx)+'. Sample: '+sample+'. Header: '+header.map((h,i)=>colLetter(i)+'='+(h||'(blank)')).join(', '));
+    }
+
+    SPENDS_LOADED = true;
+    statusEl.className = 'note status-ok';
+    statusEl.innerHTML = '<b>Live data connected</b> \u2014 ' + RAW_SPENDS.length.toLocaleString('en-IN') + ' spend row(s) loaded.';
+    initCpbqlPage();
+  } catch(err){
+    if(err.isAuthError){
+      SPENDS_LOAD_STARTED = false;
+      statusEl.className = 'note';
+      statusEl.innerHTML = 'Enter the access key to load live data.';
+      handleBadKey();
+      return;
+    }
+    SPENDS_LOAD_ERROR = true;
+    statusEl.className = 'note status-err';
+    statusEl.innerHTML = '<b>Could not load Spends data.</b> ' + err.message + '. Confirm the Apps Script proxy is deployed correctly (Spends tab gid), then reload this page.';
+  }
+}
+
+function isoDateCpbql(y,m,d){ return y + '-' + pad2(m) + '-' + pad2(d); }
+function inRange(y,m,d,fromISO,toISO){
+  const iso = isoDateCpbql(y,m,d);
+  return iso >= fromISO && iso <= toISO;
+}
+function sumSpendInRange(cluster, fromISO, toISO, channel){
+  let sum = 0;
+  RAW_SPENDS.forEach(s => {
+    if(s.cluster !== cluster) return;
+    if(!inRange(s.year, s.month, s.day, fromISO, toISO)) return;
+    sum += channel ? (s.channelSpend[channel] || 0) : s.totalSpend;
+  });
+  return sum;
+}
+function sumBqlInRange(cluster, fromISO, toISO, channel){
+  const leads = RAW_LEADS.filter(l => l.city === cluster && (!channel || l.channel === channel));
+  let sum = 0;
+  leads.forEach(l => {
+    if(inRange(l.year, l.month, l.day, fromISO, toISO)) sum++;
+  });
+  return sum;
+}
+function cpbqlFor(cluster, fromISO, toISO, channel){
+  const spend = sumSpendInRange(cluster, fromISO, toISO, channel);
+  const bql = sumBqlInRange(cluster, fromISO, toISO, channel);
+  return bql > 0 ? (spend / bql) : null;
+}
+
+function initCpbqlPage(){
+  if(!CPBQL_PAGE_INIT){
+    // Default: Period A = Aug 1-20, Period B = Sep 1-20 (matches the worked example).
+    document.getElementById('cpbqlAFrom').value = '2026-08-01';
+    document.getElementById('cpbqlATo').value = '2026-08-20';
+    document.getElementById('cpbqlBFrom').value = '2026-09-01';
+    document.getElementById('cpbqlBTo').value = '2026-09-20';
+
+    ['cpbqlAFrom','cpbqlATo','cpbqlBFrom','cpbqlBTo','cpbqlScopeSel'].forEach(id => {
+      document.getElementById(id).addEventListener('change', drawCpbql);
+    });
+    CPBQL_PAGE_INIT = true;
+  }
+  drawCpbql();
+}
+
+function drawCpbql(){
+  if(!SPENDS_LOADED || !CHANNEL_DATA_LOADED) return;
+  const aFrom = document.getElementById('cpbqlAFrom').value, aTo = document.getElementById('cpbqlATo').value;
+  const bFrom = document.getElementById('cpbqlBFrom').value, bTo = document.getElementById('cpbqlBTo').value;
+  if(!aFrom || !aTo || !bFrom || !bTo) return;
+  const scope = document.getElementById('cpbqlScopeSel').value;
+  document.getElementById('cpbqlPill').textContent = 'Period A: ' + aFrom + ' \u2192 ' + aTo + '   vs   Period B: ' + bFrom + ' \u2192 ' + bTo;
+
+  const clusterList = scope === 'non-expansion' ? NON_EXPANSION : (scope === 'expansion' ? EXPANSION : REAL_CLUSTER_NAMES);
+  function fmtMoney(v){ return v === null ? '\u2014' : '\u20b9' + Math.round(v).toLocaleString('en-IN'); }
+
+  const allStats = clusterList.map(cluster => ({
+    cluster,
+    target: CPBQL_TARGETS[cluster] !== undefined ? CPBQL_TARGETS[cluster] : null,
+    a: cpbqlFor(cluster, aFrom, aTo),
+    b: cpbqlFor(cluster, bFrom, bTo)
+  }));
+
+  const totalSpendA = clusterList.reduce((s,c) => s + sumSpendInRange(c, aFrom, aTo), 0);
+  const totalBqlA = clusterList.reduce((s,c) => s + sumBqlInRange(c, aFrom, aTo), 0);
+  const totalSpendB = clusterList.reduce((s,c) => s + sumSpendInRange(c, bFrom, bTo), 0);
+  const totalBqlB = clusterList.reduce((s,c) => s + sumBqlInRange(c, bFrom, bTo), 0);
+  const totalCpbqlA = totalBqlA > 0 ? (totalSpendA / totalBqlA) : null;
+  const totalCpbqlB = totalBqlB > 0 ? (totalSpendB / totalBqlB) : null;
+
+  document.getElementById('cpbqlTotalRow').innerHTML = [
+    {label: 'CPBQL Target' + (scope === 'overall' ? ' (India)' : ' (India-wide, shown for reference — no separate scope target exists)'), value: fmtMoney(CPBQL_TARGETS['India'])},
+    {label: 'Period A CPBQL', value: fmtMoney(totalCpbqlA)},
+    {label: 'Period B CPBQL', value: fmtMoney(totalCpbqlB)}
+  ].map(c => '<div class="kpi"><div class="label">' + c.label + '</div><div class="value">' + c.value + '</div></div>').join('');
+
+  const headerRow = '<tr><th class="cluster-col">Cluster</th><th>CPBQL Target</th><th>Period A</th><th>Period B</th></tr>';
+
+  const regions = [...new Set(clusterList.map(c => CLUSTER_REGION[c] || 'Other'))];
+  document.getElementById('cpbqlRegionContainer').innerHTML = regions.map(region => {
+    const clustersInRegion = clusterList.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
+    const rows = allStats.filter(r => clustersInRegion.includes(r.cluster)).map(r => {
+      const aWorse = (r.a !== null && r.b !== null && r.a > r.b);
+      const bWorse = (r.a !== null && r.b !== null && r.b > r.a);
+      const expandBtn = '<button type="button" class="expand-btn" onclick="toggleChanRows(this)">+</button>';
+      const mainRow = '<tr data-cluster="cpbql-' + r.cluster + '"><td class="cluster-name">' + expandBtn + r.cluster + '</td>' +
+        '<td>' + fmtMoney(r.target) + '</td>' +
+        '<td class="' + (aWorse ? 'cpbql-worse' : '') + '">' + fmtMoney(r.a) + '</td>' +
+        '<td class="' + (bWorse ? 'cpbql-worse' : '') + '">' + fmtMoney(r.b) + '</td></tr>';
+
+      const chanRows = CHANNELS_5.map(ch => {
+        const ca = cpbqlFor(r.cluster, aFrom, aTo, ch);
+        const cb = cpbqlFor(r.cluster, bFrom, bTo, ch);
+        const chAWorse = (ca !== null && cb !== null && ca > cb);
+        const chBWorse = (ca !== null && cb !== null && cb > ca);
+        return '<tr class="chan-row" data-parent="cpbql-' + r.cluster + '" style="display:none;"><td class="cluster-name">' + ch + '</td>' +
+          '<td>\u2014 (no channel-level target)</td>' +
+          '<td class="' + (chAWorse ? 'cpbql-worse' : '') + '">' + fmtMoney(ca) + '</td>' +
+          '<td class="' + (chBWorse ? 'cpbql-worse' : '') + '">' + fmtMoney(cb) + '</td></tr>';
+      }).join('');
+
+      return mainRow + chanRows;
+    }).join('');
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">\u25be</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
       '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
   }).join('');
 }
