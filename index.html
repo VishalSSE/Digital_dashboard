@@ -1743,6 +1743,378 @@ function drawCpbql(){
   }).join('');
 }
 
+// =====================================================================
+// LQI — Lead Quality Index. Raw per-lead sheets are pre-aggregated
+// server-side (see lqiAggregatedCsv in the Apps Script) into a compact
+// cluster x day x channel x band summary, so the browser only ever
+// downloads a small table instead of every individual lead.
+// =====================================================================
+const AUG_LQI = {
+  'Ahmedabad': 5.93,
+  'Nagpur': 5.74,
+  'Amravati': 5.65,
+  'Aurangabad': 5.44,
+  'Nashik': 5.18,
+  'Pune': 5.49,
+  'Kolhapur': 4.86,
+  'Jalgaon': 6.11,
+  'Solapur': 5.58,
+  'Bhopal': 5.71,
+  'Gwalior': 5.7,
+  'Indore': 6.36,
+  'Jabalpur': 6.34,
+  'Jaipur': 6.35,
+  'Delhi': 5.95,
+  'Gurgaon': 5.75,
+  'Ghaziabad': 6.13,
+  'Noida': 5.71,
+  'Agra': 6.17,
+  'Kanpur': 5.85,
+  'Lucknow': 6.15,
+  'Varanasi': 5.89,
+  'Hyderabad': 5.42,
+  'Bangalore': 5.85,
+  'Chennai': 6.19,
+  'Coimbatore': 5.6,
+  'Bareilly': 6.17,
+  'Meerut': 4.84,
+  'Vijayawada': 4.5,
+  'Salem/Erode': 4.62,
+  'Kota': 5.06,
+  'India': 5.84
+};
+const LQI_BANDS = ['0-2','2-5','5-7','7-9','9-10'];
+const LQI_LOW_BANDS = ['0-2','2-5'];    // share increasing here = quality got worse
+const LQI_HIGH_BANDS = ['7-9','9-10'];  // share increasing here = quality got better
+
+let LQI_AGG = {aug: {}, sep: {}};
+let LQI_LOADED = false;
+let LQI_LOAD_ERROR = false;
+let LQI_LOAD_STARTED = false;
+let LQI_MTD_PAGE_INIT = false;
+let LQI_BAND_PAGE_INIT = false;
+let LQI_CHAN_PAGE_INIT = false;
+
+function parseLqiAggCsv(text){
+  const rows = parseCSV(text);
+  const result = {}; // cluster -> day -> channel -> band -> {count, sum}
+  if(rows.length < 2) return result;
+  const header = rows[0].map(h => normalizeHeader(h));
+  const idx = {};
+  header.forEach((h,i) => { idx[h] = i; });
+  const cIdx = idx[normalizeHeader('cluster')], dIdx = idx[normalizeHeader('day')];
+  const chIdx = idx[normalizeHeader('channel')], bIdx = idx[normalizeHeader('band')];
+  const cntIdx = idx[normalizeHeader('count')], sumIdx = idx[normalizeHeader('scoreSum')];
+  for(let r = 1; r < rows.length; r++){
+    const row = rows[r];
+    const cluster = (row[cIdx] || '').trim();
+    const day = (row[dIdx] || '').trim();
+    const channel = (row[chIdx] || '').trim();
+    const band = (row[bIdx] || '').trim();
+    const count = parseInt(row[cntIdx], 10) || 0;
+    const sum = parseFloat(row[sumIdx]) || 0;
+    if(!cluster || !day) continue;
+    if(!result[cluster]) result[cluster] = {};
+    if(!result[cluster][day]) result[cluster][day] = {};
+    if(!result[cluster][day][channel]) result[cluster][day][channel] = {};
+    result[cluster][day][channel][band] = {count, sum};
+  }
+  return result;
+}
+
+async function loadLqiData(){
+  if(LQI_LOAD_STARTED) return;
+  LQI_LOAD_STARTED = true;
+  const statusIds = ['lqiLoadStatus','lqiBandLoadStatus','lqiChanLoadStatus'];
+  statusIds.forEach(id => {
+    const el = document.getElementById(id);
+    el.className = 'note';
+    el.innerHTML = 'Connecting to live sheets\u2026';
+  });
+  try {
+    const [augText, sepText] = await Promise.all([fetchViaProxy('lqiAug'), fetchViaProxy('lqiSep')]);
+    LQI_AGG.aug = parseLqiAggCsv(augText);
+    LQI_AGG.sep = parseLqiAggCsv(sepText);
+    LQI_LOADED = true;
+    statusIds.forEach(id => {
+      const el = document.getElementById(id);
+      el.className = 'note status-ok';
+      el.innerHTML = '<b>Live data connected</b> \u2014 August and September LQI scores loaded (pre-aggregated).';
+    });
+    initLqiMtdPage();
+    initLqiBandPage();
+    initLqiChanPage();
+  } catch(err){
+    if(err.isAuthError){
+      LQI_LOAD_STARTED = false;
+      statusIds.forEach(id => {
+        const el = document.getElementById(id);
+        el.className = 'note';
+        el.innerHTML = 'Enter the access key to load live data.';
+      });
+      handleBadKey();
+      return;
+    }
+    LQI_LOAD_ERROR = true;
+    statusIds.forEach(id => {
+      const el = document.getElementById(id);
+      el.className = 'note status-err';
+      el.innerHTML = '<b>Could not load LQI data.</b> ' + err.message;
+    });
+  }
+}
+
+// channel: null/undefined = all channels combined
+function lqiSumRaw(period, cluster, dayFrom, dayTo, channel){
+  const data = LQI_AGG[period][cluster];
+  let count = 0, sum = 0;
+  if(data){
+    for(let d = dayFrom; d <= dayTo; d++){
+      const dayData = data[String(d)];
+      if(!dayData) continue;
+      for(const ch in dayData){
+        if(channel && ch !== channel) continue;
+        for(const band in dayData[ch]){
+          count += dayData[ch][band].count;
+          sum += dayData[ch][band].sum;
+        }
+      }
+    }
+  }
+  return {count, sum};
+}
+function lqiScopeClusters(scopeOrCluster){
+  if(scopeOrCluster === 'non-expansion') return NON_EXPANSION;
+  if(scopeOrCluster === 'expansion') return EXPANSION;
+  return [scopeOrCluster];
+}
+function lqiSum(period, scopeOrCluster, dayFrom, dayTo, channel){
+  const clusters = lqiScopeClusters(scopeOrCluster);
+  let count = 0, sum = 0;
+  clusters.forEach(c => {
+    const r = lqiSumRaw(period, c, dayFrom, dayTo, channel);
+    count += r.count; sum += r.sum;
+  });
+  return {count, sum};
+}
+function lqiAvg(period, scopeOrCluster, dayFrom, dayTo, channel){
+  const {count, sum} = lqiSum(period, scopeOrCluster, dayFrom, dayTo, channel);
+  return count > 0 ? (sum / count) : null;
+}
+function lqiBandBreakdown(period, scopeOrCluster, dayFrom, dayTo, channel){
+  const clusters = lqiScopeClusters(scopeOrCluster);
+  const out = {}; LQI_BANDS.forEach(b => out[b] = 0);
+  let total = 0;
+  clusters.forEach(cluster => {
+    const data = LQI_AGG[period][cluster];
+    if(!data) return;
+    for(let d = dayFrom; d <= dayTo; d++){
+      const dayData = data[String(d)];
+      if(!dayData) continue;
+      for(const ch in dayData){
+        if(channel && channel !== '__all__' && ch !== channel) continue;
+        for(const band in dayData[ch]){
+          const c = dayData[ch][band].count;
+          out[band] = (out[band] || 0) + c;
+          total += c;
+        }
+      }
+    }
+  });
+  return {bands: out, total};
+}
+function lqiAllChannels(){
+  const set = new Set();
+  ['aug','sep'].forEach(p => {
+    for(const cluster in LQI_AGG[p]){
+      for(const day in LQI_AGG[p][cluster]){
+        for(const ch in LQI_AGG[p][cluster][day]){
+          if(ch) set.add(ch);
+        }
+      }
+    }
+  });
+  return [...set].sort();
+}
+function lqiFmt(v){ return v === null || v === undefined ? '\u2014' : v.toFixed(1); }
+const SEP_DAYS_IN_MONTH = 30;
+const AUG_DAYS_IN_MONTH = 31;
+
+// ---------------------------------------------------------------
+// Subsection 1: MTD Score
+// ---------------------------------------------------------------
+function initLqiMtdPage(){
+  if(!LQI_MTD_PAGE_INIT){
+    const sel = document.getElementById('lqiMtdAsOfDay');
+    sel.innerHTML = Array.from({length: SEP_DAYS_IN_MONTH}, (_,i) => i+1).map(d => '<option value="'+d+'">'+d+'</option>').join('');
+    sel.value = Math.min(20, SEP_DAYS_IN_MONTH);
+    sel.addEventListener('change', drawLqiMtd);
+    LQI_MTD_PAGE_INIT = true;
+  }
+  drawLqiMtd();
+}
+function drawLqiMtd(){
+  if(!LQI_LOADED) return;
+  const asOfDay = parseInt(document.getElementById('lqiMtdAsOfDay').value, 10);
+  document.getElementById('lqiMtdPill').textContent = 'Sept 1 \u2192 ' + asOfDay + '  vs  Aug Full Month (fixed benchmark)';
+
+  const headerRow = '<tr><th class="cluster-col">Cluster</th><th>Aug Full Month</th><th>Sept MTD</th><th>Aug vs Sept %</th>' +
+    Array.from({length: asOfDay}, (_,i) => '<th>' + (i+1) + '-Sep</th>').join('') + '</tr>';
+
+  const regions = [...new Set(REAL_CLUSTER_NAMES.map(c => CLUSTER_REGION[c] || 'Other'))];
+  document.getElementById('lqiMtdRegionContainer').innerHTML = regions.map(region => {
+    const clustersInRegion = REAL_CLUSTER_NAMES.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
+    const rows = clustersInRegion.map(cluster => {
+      const augVal = AUG_LQI[cluster] !== undefined ? AUG_LQI[cluster] : null;
+      const sepVal = lqiAvg('sep', cluster, 1, asOfDay);
+      const pct = (augVal !== null && augVal > 0 && sepVal !== null) ? ((sepVal - augVal) / augVal * 100) : null;
+      const pctCls2 = pct === null ? '' : (pct >= 0 ? 'chg up' : 'chg down');
+      const dayCells = Array.from({length: asOfDay}, (_,i) => {
+        const dv = lqiAvg('sep', cluster, i+1, i+1);
+        return '<td>' + lqiFmt(dv) + '</td>';
+      }).join('');
+      return '<tr><td class="cluster-name">' + cluster + '</td>' +
+        '<td>' + lqiFmt(augVal) + '</td>' +
+        '<td>' + lqiFmt(sepVal) + '</td>' +
+        '<td class="' + pctCls2 + '">' + (pct === null ? '\u2014' : (pct>=0?'+':'') + pct.toFixed(1) + '%') + '</td>' +
+        dayCells + '</tr>';
+    }).join('');
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">\u25be</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
+  }).join('');
+}
+
+// ---------------------------------------------------------------
+// Subsection 2: Band Distribution
+// ---------------------------------------------------------------
+function initLqiBandPage(){
+  if(!LQI_BAND_PAGE_INIT){
+    const chanSel = document.getElementById('lqiBandChanSel');
+    lqiAllChannels().forEach(ch => {
+      const opt = document.createElement('option');
+      opt.value = ch; opt.textContent = ch;
+      chanSel.appendChild(opt);
+    });
+    const fromSel = document.getElementById('lqiBandFromDay'), toSel = document.getElementById('lqiBandToDay');
+    const dayOpts = Array.from({length: SEP_DAYS_IN_MONTH}, (_,i) => i+1).map(d => '<option value="'+d+'">'+d+'</option>').join('');
+    fromSel.innerHTML = dayOpts; toSel.innerHTML = dayOpts;
+    fromSel.value = 1; toSel.value = Math.min(10, SEP_DAYS_IN_MONTH);
+    [chanSel, fromSel, toSel].forEach(el => el.addEventListener('change', drawLqiBand));
+    LQI_BAND_PAGE_INIT = true;
+  }
+  drawLqiBand();
+}
+function drawLqiBand(){
+  if(!LQI_LOADED) return;
+  const channel = document.getElementById('lqiBandChanSel').value;
+  const chanArg = channel === '__all__' ? null : channel;
+  const fromDay = parseInt(document.getElementById('lqiBandFromDay').value, 10);
+  const toDay = parseInt(document.getElementById('lqiBandToDay').value, 10);
+  document.getElementById('lqiBandPill').textContent = 'Day ' + fromDay + '\u2013' + toDay + ' \u00b7 Aug vs Sept \u00b7 ' + (channel === '__all__' ? 'Overall' : channel);
+
+  const regions = [...new Set(REAL_CLUSTER_NAMES.map(c => CLUSTER_REGION[c] || 'Other'))];
+  const bandHeaderCells = LQI_BANDS.map(b => '<th>' + b + '</th>').join('') + '<th>Total</th>';
+  const countHeader = '<tr><th class="cluster-col" rowspan="2">Cluster</th><th colspan="' + (LQI_BANDS.length+1) + '">August \u00b7 Day ' + fromDay + '-' + toDay + '</th><th colspan="' + (LQI_BANDS.length+1) + '">September \u00b7 Day ' + fromDay + '-' + toDay + '</th></tr><tr>' + bandHeaderCells + bandHeaderCells + '</tr>';
+
+  function countRows(clustersInRegion){
+    return clustersInRegion.map(cluster => {
+      const aug = lqiBandBreakdown('aug', cluster, fromDay, toDay, chanArg);
+      const sep = lqiBandBreakdown('sep', cluster, fromDay, toDay, chanArg);
+      const augCells = LQI_BANDS.map(b => '<td>' + (aug.bands[b]||0).toLocaleString('en-IN') + '</td>').join('') + '<td>' + aug.total.toLocaleString('en-IN') + '</td>';
+      const sepCells = LQI_BANDS.map(b => '<td>' + (sep.bands[b]||0).toLocaleString('en-IN') + '</td>').join('') + '<td>' + sep.total.toLocaleString('en-IN') + '</td>';
+      return '<tr><td class="cluster-name">' + cluster + '</td>' + augCells + sepCells + '</tr>';
+    }).join('');
+  }
+  function pctRows(clustersInRegion){
+    return clustersInRegion.map(cluster => {
+      const aug = lqiBandBreakdown('aug', cluster, fromDay, toDay, chanArg);
+      const sep = lqiBandBreakdown('sep', cluster, fromDay, toDay, chanArg);
+      function pctCellsFor(bd){
+        return LQI_BANDS.map(b => {
+          const p = bd.total > 0 ? (bd.bands[b]||0) / bd.total * 100 : 0;
+          return {band: b, pct: p};
+        });
+      }
+      const augPcts = pctCellsFor(aug), sepPcts = pctCellsFor(sep);
+      function cls(band, augPct, sepPct){
+        const delta = sepPct - augPct;
+        if(Math.abs(delta) < 0.05) return '';
+        const isLow = LQI_LOW_BANDS.includes(band);
+        const isHigh = LQI_HIGH_BANDS.includes(band);
+        if(isLow) return delta > 0 ? 'cpbql-worse' : 'chg up';
+        if(isHigh) return delta < 0 ? 'cpbql-worse' : 'chg up';
+        return '';
+      }
+      const augCells = augPcts.map(p => '<td>' + p.pct.toFixed(1) + '%</td>').join('') + '<td>' + aug.total.toLocaleString('en-IN') + '</td>';
+      const sepCells = sepPcts.map((p,i) => '<td class="' + cls(p.band, augPcts[i].pct, p.pct) + '">' + p.pct.toFixed(1) + '%</td>').join('') + '<td>' + sep.total.toLocaleString('en-IN') + '</td>';
+      return '<tr><td class="cluster-name">' + cluster + '</td>' + augCells + sepCells + '</tr>';
+    }).join('');
+  }
+
+  document.getElementById('lqiBandCountContainer').innerHTML = regions.map(region => {
+    const clustersInRegion = REAL_CLUSTER_NAMES.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">\u25be</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + countHeader + '</thead><tbody>' + countRows(clustersInRegion) + '</tbody></table></div></div></div>';
+  }).join('');
+
+  document.getElementById('lqiBandPctContainer').innerHTML = regions.map(region => {
+    const clustersInRegion = REAL_CLUSTER_NAMES.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
+    return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<div class="rname"><span class="chevron">\u25be</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
+      '<div class="region-body"><div class="table-wrap"><table><thead>' + countHeader + '</thead><tbody>' + pctRows(clustersInRegion) + '</tbody></table></div></div></div>';
+  }).join('');
+}
+
+// ---------------------------------------------------------------
+// Subsection 3: Channel-wise Score
+// ---------------------------------------------------------------
+function initLqiChanPage(){
+  if(!LQI_CHAN_PAGE_INIT){
+    const citySel = document.getElementById('lqiChanCitySel');
+    citySel.innerHTML =
+      '<option value="non-expansion">India Non-Expansion</option>' +
+      '<option value="expansion">India Expansion</option>' +
+      REAL_CLUSTER_NAMES.slice().sort().map(c => '<option value="' + c + '">' + c + '</option>').join('');
+    const asOfSel = document.getElementById('lqiChanAsOfDay');
+    asOfSel.innerHTML = Array.from({length: SEP_DAYS_IN_MONTH}, (_,i) => i+1).map(d => '<option value="'+d+'">'+d+'</option>').join('');
+    asOfSel.value = Math.min(20, SEP_DAYS_IN_MONTH);
+    [citySel, asOfSel].forEach(el => el.addEventListener('change', drawLqiChan));
+    LQI_CHAN_PAGE_INIT = true;
+  }
+  drawLqiChan();
+}
+function drawLqiChan(){
+  if(!LQI_LOADED) return;
+  const city = document.getElementById('lqiChanCitySel').value;
+  const asOfDay = parseInt(document.getElementById('lqiChanAsOfDay').value, 10);
+  document.getElementById('lqiChanPill').textContent = (city === 'non-expansion' ? 'India Non-Expansion' : (city === 'expansion' ? 'India Expansion' : city)) + '  \u00b7  Sept 1 \u2192 ' + asOfDay;
+
+  const channels = lqiAllChannels();
+  const headerRow = '<tr><th class="cluster-col">Channel</th><th>Aug Full Month</th><th>Sept MTD</th><th>Aug vs Sept %</th>' +
+    Array.from({length: asOfDay}, (_,i) => '<th>' + (i+1) + '-Sep</th>').join('') + '</tr>';
+
+  const rows = channels.map(ch => {
+    const augVal = lqiAvg('aug', city, 1, AUG_DAYS_IN_MONTH, ch);
+    const sepVal = lqiAvg('sep', city, 1, asOfDay, ch);
+    const pct = (augVal !== null && augVal > 0 && sepVal !== null) ? ((sepVal - augVal) / augVal * 100) : null;
+    const pctCls2 = pct === null ? '' : (pct >= 0 ? 'chg up' : 'chg down');
+    const dayCells = Array.from({length: asOfDay}, (_,i) => {
+      const dv = lqiAvg('sep', city, i+1, i+1, ch);
+      return '<td>' + lqiFmt(dv) + '</td>';
+    }).join('');
+    return '<tr><td class="cluster-name">' + ch + '</td>' +
+      '<td>' + lqiFmt(augVal) + '</td>' +
+      '<td>' + lqiFmt(sepVal) + '</td>' +
+      '<td class="' + pctCls2 + '">' + (pct === null ? '\u2014' : (pct>=0?'+':'') + pct.toFixed(1) + '%') + '</td>' +
+      dayCells + '</tr>';
+  }).join('');
+
+  document.getElementById('lqiChanContainer').innerHTML = '<div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+
 function weekStart(date){
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const day = d.getDay();
