@@ -247,6 +247,7 @@
   .key-modal button:hover{opacity:.92;}
   .key-modal .key-err{color:var(--down);font-size:11.5px;margin-top:8px;display:none;}
   .cpbql-worse{background:var(--down-bg)!important;font-weight:700;color:var(--down);}
+  .scope-summary-row td{background:#eef4fb!important;font-weight:700;}
 </style>
 </head>
 <body>
@@ -476,6 +477,13 @@
     <div class="note" id="lqiLoadStatus">Connecting to live sheets…</div>
 
     <div class="controls" style="margin-bottom:18px;">
+      <div><label>Scope</label>
+        <select id="lqiMtdScopeSel">
+          <option value="overall">Overall (all clusters)</option>
+          <option value="non-expansion">India Non-Expansion</option>
+          <option value="expansion">India Expansion</option>
+        </select>
+      </div>
       <div><label>Sept MTD Up To</label><select id="lqiMtdAsOfDay"></select></div>
       <div class="pill" id="lqiMtdPill"></div>
     </div>
@@ -485,6 +493,7 @@
         <div class="section-title">Average LQI Score <span class="section-tag">Aug Full Month vs Sept MTD, plus day-by-day</span></div>
         <div class="section-desc">Score = sum of heuristic_score ÷ number of leads, for that cluster and period. Aug Full Month is a fixed reference value; everything else is computed live.</div>
       </div>
+      <div id="lqiMtdScopeRow" class="table-wrap" style="margin-bottom:14px;"></div>
       <div id="lqiMtdRegionContainer"></div>
     </div>
   </div>
@@ -1786,6 +1795,10 @@ const AUG_LQI = {
 const LQI_BANDS = ['0-2','2-5','5-7','7-9','9-10'];
 const LQI_LOW_BANDS = ['0-2','2-5'];    // share increasing here = quality got worse
 const LQI_HIGH_BANDS = ['7-9','9-10'];  // share increasing here = quality got better
+// Channel-wise Score is restricted to exactly these 7 — matched by literal string
+// against the raw "Marketing Channel" column, so if the live sheet uses different
+// exact labels for these, that row will show no data until the label matches.
+const LQI_CHANNELS_7 = ['Google - Search','Google - PMax','Google - Demand Gen','Meta Web','Meta Form','Organic','Direct'];
 
 let LQI_AGG = {aug: {}, sep: {}};
 let LQI_LOADED = false;
@@ -1949,6 +1962,7 @@ function initLqiMtdPage(){
     sel.innerHTML = Array.from({length: SEP_DAYS_IN_MONTH}, (_,i) => i+1).map(d => '<option value="'+d+'">'+d+'</option>').join('');
     sel.value = Math.min(20, SEP_DAYS_IN_MONTH);
     sel.addEventListener('change', drawLqiMtd);
+    document.getElementById('lqiMtdScopeSel').addEventListener('change', drawLqiMtd);
     LQI_MTD_PAGE_INIT = true;
   }
   drawLqiMtd();
@@ -1956,29 +1970,38 @@ function initLqiMtdPage(){
 function drawLqiMtd(){
   if(!LQI_LOADED) return;
   const asOfDay = parseInt(document.getElementById('lqiMtdAsOfDay').value, 10);
+  const scope = document.getElementById('lqiMtdScopeSel').value;
   document.getElementById('lqiMtdPill').textContent = 'Sept 1 \u2192 ' + asOfDay + '  vs  Aug Full Month (fixed benchmark)';
 
   const headerRow = '<tr><th class="cluster-col">Cluster</th><th>Aug Full Month</th><th>Sept MTD</th><th>Aug vs Sept %</th>' +
     Array.from({length: asOfDay}, (_,i) => '<th>' + (i+1) + '-Sep</th>').join('') + '</tr>';
 
-  const regions = [...new Set(REAL_CLUSTER_NAMES.map(c => CLUSTER_REGION[c] || 'Other'))];
-  document.getElementById('lqiMtdRegionContainer').innerHTML = regions.map(region => {
-    const clustersInRegion = REAL_CLUSTER_NAMES.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
-    const rows = clustersInRegion.map(cluster => {
-      const augVal = AUG_LQI[cluster] !== undefined ? AUG_LQI[cluster] : null;
-      const sepVal = lqiAvg('sep', cluster, 1, asOfDay);
-      const pct = (augVal !== null && augVal > 0 && sepVal !== null) ? ((sepVal - augVal) / augVal * 100) : null;
-      const pctCls2 = pct === null ? '' : (pct >= 0 ? 'chg up' : 'chg down');
-      const dayCells = Array.from({length: asOfDay}, (_,i) => {
-        const dv = lqiAvg('sep', cluster, i+1, i+1);
-        return '<td>' + lqiFmt(dv) + '</td>';
-      }).join('');
-      return '<tr><td class="cluster-name">' + cluster + '</td>' +
-        '<td>' + lqiFmt(augVal) + '</td>' +
-        '<td>' + lqiFmt(sepVal) + '</td>' +
-        '<td class="' + pctCls2 + '">' + (pct === null ? '\u2014' : (pct>=0?'+':'') + pct.toFixed(1) + '%') + '</td>' +
-        dayCells + '</tr>';
+  function rowFor(label, cluster, isScopeRow){
+    const augVal = isScopeRow
+      ? (cluster.length ? cluster.reduce((s,c) => s + (AUG_LQI[c]||0), 0) / cluster.filter(c => AUG_LQI[c]!==undefined).length : null)
+      : (AUG_LQI[cluster] !== undefined ? AUG_LQI[cluster] : null);
+    const sepVal = isScopeRow ? lqiAvg('sep', scope, 1, asOfDay) : lqiAvg('sep', cluster, 1, asOfDay);
+    const pct = (augVal !== null && augVal > 0 && sepVal !== null) ? ((sepVal - augVal) / augVal * 100) : null;
+    const pctCls2 = pct === null ? '' : (pct >= 0 ? 'chg up' : 'chg down');
+    const dayCells = Array.from({length: asOfDay}, (_,i) => {
+      const dv = isScopeRow ? lqiAvg('sep', scope, i+1, i+1) : lqiAvg('sep', cluster, i+1, i+1);
+      return '<td>' + lqiFmt(dv) + '</td>';
     }).join('');
+    return '<tr' + (isScopeRow ? ' class="scope-summary-row"' : '') + '><td class="cluster-name">' + label + '</td>' +
+      '<td>' + lqiFmt(augVal) + '</td>' +
+      '<td>' + lqiFmt(sepVal) + '</td>' +
+      '<td class="' + pctCls2 + '">' + (pct === null ? '\u2014' : (pct>=0?'+':'') + pct.toFixed(1) + '%') + '</td>' +
+      dayCells + '</tr>';
+  }
+
+  const scopeClusters = scope === 'non-expansion' ? NON_EXPANSION : (scope === 'expansion' ? EXPANSION : REAL_CLUSTER_NAMES);
+  const scopeLabel = scope === 'non-expansion' ? 'India Non-Expansion (avg of ' + scopeClusters.length + ' clusters)' : (scope === 'expansion' ? 'India Expansion (avg of ' + scopeClusters.length + ' clusters)' : 'Overall — All India (avg of ' + scopeClusters.length + ' clusters)');
+  document.getElementById('lqiMtdScopeRow').innerHTML = '<table><thead>' + headerRow + '</thead><tbody>' + rowFor(scopeLabel, scopeClusters, true) + '</tbody></table>';
+
+  const regions = [...new Set(scopeClusters.map(c => CLUSTER_REGION[c] || 'Other'))];
+  document.getElementById('lqiMtdRegionContainer').innerHTML = regions.map(region => {
+    const clustersInRegion = scopeClusters.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
+    const rows = clustersInRegion.map(cluster => rowFor(cluster, cluster, false)).join('');
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">\u25be</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
       '<div class="region-body"><div class="table-wrap"><table><thead>' + headerRow + '</thead><tbody>' + rows + '</tbody></table></div></div></div>';
@@ -2017,13 +2040,18 @@ function drawLqiBand(){
   const bandHeaderCells = LQI_BANDS.map(b => '<th>' + b + '</th>').join('') + '<th>Total</th>';
   const countHeader = '<tr><th class="cluster-col" rowspan="2">Cluster</th><th colspan="' + (LQI_BANDS.length+1) + '">August \u00b7 Day ' + fromDay + '-' + toDay + '</th><th colspan="' + (LQI_BANDS.length+1) + '">September \u00b7 Day ' + fromDay + '-' + toDay + '</th></tr><tr>' + bandHeaderCells + bandHeaderCells + '</tr>';
 
+  function scopeLabel(c){
+    if(c === 'non-expansion') return 'India Non-Expansion (' + NON_EXPANSION.length + ' clusters)';
+    if(c === 'expansion') return 'India Expansion (' + EXPANSION.length + ' clusters)';
+    return c;
+  }
   function countRows(clustersInRegion){
     return clustersInRegion.map(cluster => {
       const aug = lqiBandBreakdown('aug', cluster, fromDay, toDay, chanArg);
       const sep = lqiBandBreakdown('sep', cluster, fromDay, toDay, chanArg);
       const augCells = LQI_BANDS.map(b => '<td>' + (aug.bands[b]||0).toLocaleString('en-IN') + '</td>').join('') + '<td>' + aug.total.toLocaleString('en-IN') + '</td>';
       const sepCells = LQI_BANDS.map(b => '<td>' + (sep.bands[b]||0).toLocaleString('en-IN') + '</td>').join('') + '<td>' + sep.total.toLocaleString('en-IN') + '</td>';
-      return '<tr><td class="cluster-name">' + cluster + '</td>' + augCells + sepCells + '</tr>';
+      return '<tr><td class="cluster-name">' + scopeLabel(cluster) + '</td>' + augCells + sepCells + '</tr>';
     }).join('');
   }
   function pctRows(clustersInRegion){
@@ -2048,18 +2076,25 @@ function drawLqiBand(){
       }
       const augCells = augPcts.map(p => '<td>' + p.pct.toFixed(1) + '%</td>').join('') + '<td>' + aug.total.toLocaleString('en-IN') + '</td>';
       const sepCells = sepPcts.map((p,i) => '<td class="' + cls(p.band, augPcts[i].pct, p.pct) + '">' + p.pct.toFixed(1) + '%</td>').join('') + '<td>' + sep.total.toLocaleString('en-IN') + '</td>';
-      return '<tr><td class="cluster-name">' + cluster + '</td>' + augCells + sepCells + '</tr>';
+      return '<tr><td class="cluster-name">' + scopeLabel(cluster) + '</td>' + augCells + sepCells + '</tr>';
     }).join('');
   }
 
-  document.getElementById('lqiBandCountContainer').innerHTML = regions.map(region => {
+  const scopeSummaryHtml = '<div class="table-wrap" style="margin-bottom:14px;"><table><thead>' + countHeader + '</thead><tbody>' +
+    countRows(['non-expansion','expansion']).replace(/<tr>/g, '<tr class="scope-summary-row">') +
+    '</tbody></table></div>';
+  const scopeSummaryPctHtml = '<div class="table-wrap" style="margin-bottom:14px;"><table><thead>' + countHeader + '</thead><tbody>' +
+    pctRows(['non-expansion','expansion']).replace(/<tr>/g, '<tr class="scope-summary-row">') +
+    '</tbody></table></div>';
+
+  document.getElementById('lqiBandCountContainer').innerHTML = scopeSummaryHtml + regions.map(region => {
     const clustersInRegion = REAL_CLUSTER_NAMES.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">\u25be</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
       '<div class="region-body"><div class="table-wrap"><table><thead>' + countHeader + '</thead><tbody>' + countRows(clustersInRegion) + '</tbody></table></div></div></div>';
   }).join('');
 
-  document.getElementById('lqiBandPctContainer').innerHTML = regions.map(region => {
+  document.getElementById('lqiBandPctContainer').innerHTML = scopeSummaryPctHtml + regions.map(region => {
     const clustersInRegion = REAL_CLUSTER_NAMES.filter(c => (CLUSTER_REGION[c] || 'Other') === region);
     return '<div class="region-block"><div class="region-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
       '<div class="rname"><span class="chevron">\u25be</span> Region: ' + region + ' <span class="region-tag">' + clustersInRegion.length + ' clusters</span></div></div>' +
@@ -2091,7 +2126,7 @@ function drawLqiChan(){
   const asOfDay = parseInt(document.getElementById('lqiChanAsOfDay').value, 10);
   document.getElementById('lqiChanPill').textContent = (city === 'non-expansion' ? 'India Non-Expansion' : (city === 'expansion' ? 'India Expansion' : city)) + '  \u00b7  Sept 1 \u2192 ' + asOfDay;
 
-  const channels = lqiAllChannels();
+  const channels = LQI_CHANNELS_7;
   const headerRow = '<tr><th class="cluster-col">Channel</th><th>Aug Full Month</th><th>Sept MTD</th><th>Aug vs Sept %</th>' +
     Array.from({length: asOfDay}, (_,i) => '<th>' + (i+1) + '-Sep</th>').join('') + '</tr>';
 
